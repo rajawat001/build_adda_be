@@ -1,42 +1,70 @@
 const authService = require('../services/auth.service');
 const User = require('../models/User');
+const Distributor = require('../models/Distributor');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, NotFoundError, AuthenticationError } = require('../utils/errors');
 
-// @desc    Register new user
+// @desc    Register new user or distributor
 // @route   POST /api/auth/register
 // @access  Public
 const register = asyncHandler(async (req, res) => {
-  const { name, email, password, phone, location } = req.body;
+  const { name, email, password, phone, location, role, businessName, pincode, address } = req.body;
 
-  // Check if user already exists
+  // Check if user already exists (check both User and Distributor)
   const existingUser = await User.findOne({ email });
-  if (existingUser) {
+  const existingDistributor = await Distributor.findOne({ email });
+
+  if (existingUser || existingDistributor) {
     throw new ValidationError('User with this email already exists');
   }
 
-  // Create user
-  const user = await User.create({
-    name,
-    email,
-    password,
-    phone,
-    location
-  });
+  let user;
+
+  // Create distributor or user based on role
+  if (role === 'distributor') {
+    // Create distributor
+    user = await Distributor.create({
+      businessName: businessName || name,
+      email,
+      password,
+      phone,
+      pincode,
+      address,
+      location,
+      isApproved: false  // Distributors need approval
+    });
+  } else {
+    // Create regular user
+    user = await User.create({
+      name,
+      email,
+      password,
+      phone,
+      location,
+      role: 'user'
+    });
+  }
 
   // Generate token
-  const token = authService.generateToken(user._id, user.role);
+  const token = authService.generateToken(user._id, role === 'distributor' ? 'distributor' : 'user');
+
+  // Set httpOnly cookie (SECURITY FIX)
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+  });
 
   res.status(201).json({
     success: true,
-    message: 'User registered successfully',
-    token,
+    message: 'Registration successful',
     user: {
       _id: user._id,
-      name: user.name,
+      name: user.name || user.businessName,
       email: user.email,
       phone: user.phone,
-      role: user.role
+      role: role === 'distributor' ? 'distributor' : 'user'
     }
   });
 });
@@ -47,8 +75,15 @@ const register = asyncHandler(async (req, res) => {
 const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
-  // Find user and explicitly select password
-  const user = await User.findOne({ email }).select('+password');
+  // Check both User and Distributor models
+  let user = await User.findOne({ email }).select('+password');
+  let userRole = 'user';
+
+  if (!user) {
+    // Check Distributor model if not found in User model
+    user = await Distributor.findOne({ email }).select('+password');
+    userRole = 'distributor';
+  }
 
   if (!user) {
     throw new AuthenticationError('Invalid email or password');
@@ -74,11 +109,16 @@ const login = asyncHandler(async (req, res) => {
     throw new AuthenticationError('Your account has been deactivated');
   }
 
+  // For distributors, check if approved
+  if (userRole === 'distributor' && !user.isApproved) {
+    throw new AuthenticationError('Your distributor account is pending approval');
+  }
+
   // Reset failed login attempts on successful login
   await user.resetLoginAttempts();
 
-  // Generate token
-  const token = authService.generateToken(user._id, user.role);
+  // Generate token with correct role
+  const token = authService.generateToken(user._id, userRole);
 
   // Set httpOnly cookie (SECURITY ENHANCEMENT)
   res.cookie('token', token, {
@@ -91,13 +131,12 @@ const login = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     message: 'Login successful',
-    token,
     user: {
       _id: user._id,
-      name: user.name,
+      name: user.name || user.businessName,
       email: user.email,
       phone: user.phone,
-      role: user.role,
+      role: userRole,
       emailVerified: user.emailVerified
     }
   });
@@ -107,29 +146,56 @@ const login = asyncHandler(async (req, res) => {
 // @route   GET /api/auth/profile
 // @access  Private
 const getProfile = asyncHandler(async (req, res) => {
-  // User is already attached by auth middleware
-  const user = await User.findById(req.user._id).populate('wishlist');
+  // User is already attached by auth middleware with role
+  let user;
+
+  if (req.user.role === 'distributor') {
+    user = await Distributor.findById(req.user._id).populate('products');
+  } else {
+    user = await User.findById(req.user._id).populate('wishlist');
+  }
 
   if (!user) {
     throw new NotFoundError('User not found');
   }
 
-  res.json({
-    success: true,
-    user: {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-      addresses: user.addresses,
-      wishlist: user.wishlist,
-      cart: user.cart,
-      emailVerified: user.emailVerified,
-      profileImage: user.profileImage,
-      createdAt: user.createdAt
-    }
-  });
+  // Build response based on user type
+  if (req.user.role === 'distributor') {
+    res.json({
+      success: true,
+      user: {
+        _id: user._id,
+        businessName: user.businessName,
+        email: user.email,
+        phone: user.phone,
+        role: 'distributor',
+        pincode: user.pincode,
+        address: user.address,
+        location: user.location,
+        isApproved: user.isApproved,
+        emailVerified: user.emailVerified,
+        products: user.products,
+        createdAt: user.createdAt
+      }
+    });
+  } else {
+    res.json({
+      success: true,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        addresses: user.addresses,
+        wishlist: user.wishlist,
+        cart: user.cart,
+        emailVerified: user.emailVerified,
+        profileImage: user.profileImage,
+        createdAt: user.createdAt
+      }
+    });
+  }
 });
 
 // @desc    Update user profile
