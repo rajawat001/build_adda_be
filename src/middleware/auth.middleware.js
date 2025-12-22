@@ -63,6 +63,7 @@ const protect = async (req, res, next) => {
     }
 
     // Add user role to request for easy access
+    req.user.role = decoded.role;  // CRITICAL: Set role on req.user object
     req.userRole = decoded.role;
 
     next();
@@ -104,6 +105,7 @@ const optionalAuth = async (req, res, next) => {
     }
 
     if (req.user && req.user.isActive) {
+      req.user.role = decoded.role;  // Set role on req.user object
       req.userRole = decoded.role;
       req.userModel = decoded.role === 'distributor' ? 'Distributor' : 'User';
     }

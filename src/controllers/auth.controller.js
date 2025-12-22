@@ -52,7 +52,7 @@ const register = asyncHandler(async (req, res) => {
   res.cookie('token', token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax', // Use 'lax' in development for cross-port requests
     maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
   });
 
@@ -83,6 +83,9 @@ const login = asyncHandler(async (req, res) => {
     // Check Distributor model if not found in User model
     user = await Distributor.findOne({ email }).select('+password');
     userRole = 'distributor';
+  } else {
+    // FIX: Use the actual role from the database, not hardcoded 'user'
+    userRole = user.role || 'user';
   }
 
   if (!user) {
@@ -124,7 +127,7 @@ const login = asyncHandler(async (req, res) => {
   res.cookie('token', token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax', // Use 'lax' in development for cross-port requests
     maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
   });
 
@@ -399,6 +402,8 @@ const logout = asyncHandler(async (req, res) => {
   // Clear httpOnly cookie
   res.cookie('token', '', {
     httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
     expires: new Date(0)
   });
 

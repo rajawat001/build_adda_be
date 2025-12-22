@@ -1,5 +1,6 @@
 const Product = require('../models/Product');
 const Order = require('../models/Order');
+const Distributor = require('../models/Distributor');
 const { uploadToCloudinary } = require('../config/cloudinary');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, NotFoundError, AuthorizationError } = require('../utils/errors');
@@ -394,6 +395,88 @@ exports.updateOrderStatus = asyncHandler(async (req, res) => {
     success: true,
     message: 'Order status updated successfully',
     order
+  });
+});
+
+// @desc    Get distributor profile
+// @route   GET /api/distributor/profile
+// @access  Private (Distributor only)
+exports.getProfile = asyncHandler(async (req, res) => {
+  const distributorId = req.user._id;
+
+  const distributor = await Distributor.findById(distributorId).select('-password');
+
+  if (!distributor) {
+    throw new NotFoundError('Distributor not found');
+  }
+
+  res.json({
+    success: true,
+    distributor
+  });
+});
+
+// @desc    Update distributor profile
+// @route   PUT /api/distributor/profile
+// @access  Private (Distributor only)
+exports.updateProfile = asyncHandler(async (req, res) => {
+  const distributorId = req.user._id;
+  const { businessName, phone, address, pincode } = req.body;
+
+  const distributor = await Distributor.findById(distributorId);
+
+  if (!distributor) {
+    throw new NotFoundError('Distributor not found');
+  }
+
+  // Field whitelisting - only update allowed fields
+  if (businessName !== undefined) {
+    if (!businessName.trim()) {
+      throw new ValidationError('Business name cannot be empty');
+    }
+    distributor.businessName = businessName.trim();
+  }
+
+  if (phone !== undefined) {
+    if (!phone.trim()) {
+      throw new ValidationError('Phone number cannot be empty');
+    }
+    // Basic phone validation
+    const phoneRegex = /^[0-9]{10}$/;
+    if (!phoneRegex.test(phone.replace(/[\s-]/g, ''))) {
+      throw new ValidationError('Please provide a valid 10-digit phone number');
+    }
+    distributor.phone = phone.trim();
+  }
+
+  if (address !== undefined) {
+    if (!address.trim()) {
+      throw new ValidationError('Address cannot be empty');
+    }
+    distributor.address = address.trim();
+  }
+
+  if (pincode !== undefined) {
+    if (!pincode.trim()) {
+      throw new ValidationError('Pincode cannot be empty');
+    }
+    // Basic pincode validation
+    const pincodeRegex = /^[0-9]{6}$/;
+    if (!pincodeRegex.test(pincode)) {
+      throw new ValidationError('Please provide a valid 6-digit pincode');
+    }
+    distributor.pincode = pincode.trim();
+  }
+
+  await distributor.save();
+
+  // Return distributor without password
+  const updatedDistributor = await Distributor.findById(distributorId).select('-password');
+
+  res.json({
+    success: true,
+    message: 'Profile updated successfully',
+    distributor: updatedDistributor
   });
 });
 

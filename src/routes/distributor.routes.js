@@ -18,4 +18,12 @@ router.post('/products', upload.single('image'), distributorController.addProduc
 router.put('/products/:productId', upload.single('image'), distributorController.updateProduct);
 router.delete('/products/:productId', distributorController.deleteProduct);
 
+// Order management
+router.get('/orders', distributorController.getDistributorOrders);
+router.put('/orders/:orderId', distributorController.updateOrderStatus);
+
+// Profile management
+router.get('/profile', distributorController.getProfile);
+router.put('/profile', distributorController.updateProfile);
+
 module.exports = router;
