@@ -288,6 +288,12 @@ const addAddress = asyncHandler(async (req, res) => {
     isDefault: isDefault || false
   };
 
+  // Additional validation to ensure no empty strings after trim
+  if (!addressData.fullName || !addressData.phone || !addressData.address ||
+      !addressData.city || !addressData.state || !addressData.pincode) {
+    throw new ValidationError('All address fields are required');
+  }
+
   const user = await User.findById(userId);
 
   if (!user) {
