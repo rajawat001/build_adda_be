@@ -4,6 +4,7 @@ const { AppError } = require('../utils/errors');
 const errorHandler = (err, req, res, next) => {
   let error = { ...err };
   error.message = err.message;
+  error.statusCode = err.statusCode;
 
   // Log error for debugging (in development)
   if (process.env.NODE_ENV === 'development') {
@@ -23,11 +24,9 @@ const errorHandler = (err, req, res, next) => {
     error = new AppError(message, 409);
   }
 
-  // Mongoose validation error
-  if (err.name === 'ValidationError') {
-    const message = err.errors && Object.keys(err.errors).length > 0
-      ? Object.values(err.errors).map(val => val.message).join(', ')
-      : 'Validation failed';
+  // Mongoose validation error (from model validation)
+  if (err.name === 'ValidationError' && err.errors) {
+    const message = Object.values(err.errors).map(val => val.message).join(', ');
     error = new AppError(message, 400);
   }
 
@@ -50,11 +49,23 @@ const errorHandler = (err, req, res, next) => {
   const statusCode = error.statusCode || 500;
   const message = error.message || 'Server Error';
 
-  res.status(statusCode).json({
+  // Build response object
+  const response = {
     success: false,
-    error: message,
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-  });
+    error: message
+  };
+
+  // Add validation details if available (for express-validator errors)
+  if (err.details && Array.isArray(err.details)) {
+    response.validationErrors = err.details;
+  }
+
+  // Add stack trace in development
+  if (process.env.NODE_ENV === 'development') {
+    response.stack = err.stack;
+  }
+
+  res.status(statusCode).json(response);
 };
 
 // 404 Not Found handler

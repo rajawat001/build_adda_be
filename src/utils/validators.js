@@ -6,8 +6,22 @@ const { ValidationError } = require('./errors');
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    const errorMessages = errors.array().map(err => err.msg).join(', ');
-    throw new ValidationError(errorMessages);
+    // Format errors with field names for better debugging
+    const errorDetails = errors.array().map(err => ({
+      field: err.path || err.param,
+      message: err.msg,
+      value: err.value
+    }));
+
+    // Create detailed error message
+    const errorMessages = errorDetails
+      .map(err => `${err.field}: ${err.message}`)
+      .join('; ');
+
+    // Create error with both formatted message and details
+    const error = new ValidationError(errorMessages);
+    error.details = errorDetails; // Add structured details for frontend
+    throw error;
   }
   next();
 };
