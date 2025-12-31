@@ -48,12 +48,13 @@ const register = asyncHandler(async (req, res) => {
   // Generate token
   const token = authService.generateToken(user._id, role === 'distributor' ? 'distributor' : 'user');
 
-  // Set httpOnly cookie (SECURITY FIX)
+  // Set httpOnly cookie for cross-domain access
   res.cookie('token', token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax', // Use 'lax' in development for cross-port requests
-    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    secure: true, // Required for sameSite: 'none'
+    sameSite: 'none', // Allow cross-site cookies (different domains)
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    path: '/' // Ensure cookie is accessible across all paths
   });
 
   res.status(201).json({
@@ -123,12 +124,13 @@ const login = asyncHandler(async (req, res) => {
   // Generate token with correct role
   const token = authService.generateToken(user._id, userRole);
 
-  // Set httpOnly cookie (SECURITY ENHANCEMENT)
+  // Set httpOnly cookie for cross-domain access
   res.cookie('token', token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax', // Use 'lax' in development for cross-port requests
-    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    secure: true, // Required for sameSite: 'none'
+    sameSite: 'none', // Allow cross-site cookies (different domains)
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    path: '/' // Ensure cookie is accessible across all paths
   });
 
   res.json({
@@ -405,12 +407,13 @@ const deleteAddress = asyncHandler(async (req, res) => {
 // @route   POST /api/auth/logout
 // @access  Private
 const logout = asyncHandler(async (req, res) => {
-  // Clear httpOnly cookie
+  // Clear httpOnly cookie for cross-domain access
   res.cookie('token', '', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
-    expires: new Date(0)
+    secure: true, // Required for sameSite: 'none'
+    sameSite: 'none', // Allow cross-site cookies (different domains)
+    expires: new Date(0),
+    path: '/' // Ensure cookie is cleared across all paths
   });
 
   res.json({
