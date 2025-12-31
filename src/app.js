@@ -19,17 +19,7 @@ const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
 if (missingEnvVars.length > 0) {
   console.error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
-  if (process.env.NODE_ENV !== 'production') {
-    process.exit(1);
-  }
-}
-
-// Warn about optional environment variables
-const optionalEnvVars = ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
-const missingOptionalVars = optionalEnvVars.filter(varName => !process.env[varName]);
-if (missingOptionalVars.length > 0) {
-  console.warn(`Warning: Optional environment variables not set: ${missingOptionalVars.join(', ')}`);
-  console.warn('Some features may not work properly.');
+  process.exit(1);
 }
 
 const app = express();
@@ -44,25 +34,8 @@ app.use(helmet({
 }));
 
 // SECURITY: CORS configuration
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  process.env.FRONTEND_URL,
-  process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null
-].filter(Boolean);
-
 app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) return callback(null, true);
-
-    // Check if origin is in allowed list or matches Vercel preview domains
-    if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true,  // Allow cookies
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -165,29 +138,25 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
-// Only start server if not in Vercel (serverless)
-if (process.env.VERCEL !== '1' && require.main === module) {
-  const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5000;
 
-  const server = app.listen(PORT, () => {
-    console.log(`
+const server = app.listen(PORT, () => {
+  console.log(`
 ╔════════════════════════════════════════╗
 ║   BuildMat E-commerce API Server      ║
 ║   Port: ${PORT}                           ║
 ║   Environment: ${process.env.NODE_ENV || 'development'}         ║
 ║   Status: READY ✓                      ║
 ╚════════════════════════════════════════╝
-    `);
-  });
+  `);
+});
 
-  // Graceful shutdown
-  process.on('SIGTERM', () => {
-    console.log('SIGTERM received. Shutting down gracefully...');
-    server.close(() => {
-      console.log('Process terminated');
-    });
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down gracefully...');
+  server.close(() => {
+    console.log('Process terminated');
   });
-}
+});
 
-// Export app for serverless
 module.exports = app;
