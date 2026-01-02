@@ -13,55 +13,14 @@ class OrderService {
 
   // Create new order
   async createOrder(orderData) {
-    const { user, items, shippingAddress, couponCode } = orderData;
-
-    // Validate and calculate amounts
-    let subtotal = 0;
-    const orderItems = [];
-
-    for (const item of items) {
-      const product = await Product.findById(item.product);
-      
-      if (!product) {
-        throw new Error(`Product ${item.product} not found`);
-      }
-
-      if (product.stock < item.quantity) {
-        throw new Error(`Insufficient stock for ${product.name}`);
-      }
-
-      const itemTotal = product.price * item.quantity;
-      subtotal += itemTotal;
-
-      orderItems.push({
-        product: product._id,
-        quantity: item.quantity,
-        price: product.price
-      });
-    }
-
-    // Apply coupon if provided
-    let discount = 0;
-    if (couponCode) {
-      discount = await this.applyCoupon(couponCode, subtotal);
-    }
-
-    const totalAmount = subtotal - discount;
-
-    // Create order
+    // Use the orderData passed from controller which already has validated items and calculations
     const order = await Order.create({
       orderNumber: this.generateOrderNumber(),
-      user,
-      items: orderItems,
-      subtotal,
-      discount,
-      totalAmount,
-      shippingAddress,
-      couponCode: couponCode || null
+      ...orderData  // Spread all fields from orderData (includes paymentMethod, distributor, etc.)
     });
 
     // Update product stock
-    for (const item of items) {
+    for (const item of orderData.items) {
       await Product.findByIdAndUpdate(item.product, {
         $inc: { stock: -item.quantity }
       });

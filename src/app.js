@@ -29,7 +29,16 @@ connectDB();
 
 // SECURITY: Helmet - Set security headers
 app.use(helmet({
-  contentSecurityPolicy: false,  // Disable for API, enable for serving HTML
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://checkout.razorpay.com"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://api.razorpay.com"],
+      frameSrc: ["'self'", "https://api.razorpay.com"],
+    }
+  },
   crossOriginEmbedderPolicy: false
 }));
 
@@ -118,6 +127,7 @@ if (process.env.NODE_ENV === 'development') {
 app.use('/api/auth', require('./routes/auth.routes'));
 app.use('/api/products', require('./routes/product.routes'));
 app.use('/api/orders', require('./routes/order.routes'));
+app.use('/api/users', require('./routes/user.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
 app.use('/api/distributor', require('./routes/distributor.routes'));
 

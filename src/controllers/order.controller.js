@@ -11,6 +11,13 @@ const { ValidationError, NotFoundError, AuthorizationError, AuthenticationError 
 exports.createOrder = asyncHandler(async (req, res) => {
   // FIX: Use _id consistently
   const userId = req.user._id;
+
+  console.log('=== CREATE ORDER DEBUG ===');
+  console.log('Request body:', JSON.stringify(req.body, null, 2));
+  console.log('Payment method:', req.body.paymentMethod);
+  console.log('Distributor:', req.body.distributor);
+  console.log('=========================');
+
   const { items, shippingAddress, paymentMethod, couponCode, distributor } = req.body;
 
   // Validate required fields
