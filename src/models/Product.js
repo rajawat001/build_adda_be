@@ -40,6 +40,34 @@ const productSchema = new mongoose.Schema({
     ref: 'Distributor',
     required: true
   },
+  minQuantity: {
+    type: Number,
+    default: 1,
+    min: 1
+  },
+  maxQuantity: {
+    type: Number,
+    default: null,
+    min: 1,
+    validate: {
+      validator: function(value) {
+        if (value === null || value === undefined) return true;
+        return value >= this.minQuantity;
+      },
+      message: 'Max quantity must be greater than or equal to min quantity'
+    }
+  },
+  acceptedPaymentMethods: {
+    type: [String],
+    enum: ['COD', 'Online'],
+    default: ['COD', 'Online'],
+    validate: {
+      validator: function(value) {
+        return value && value.length > 0;
+      },
+      message: 'At least one payment method must be selected'
+    }
+  },
   isActive: {
     type: Boolean,
     default: true

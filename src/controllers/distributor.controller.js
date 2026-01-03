@@ -54,7 +54,7 @@ exports.getDistributorProducts = asyncHandler(async (req, res) => {
 exports.addProduct = asyncHandler(async (req, res) => {
   // FIX: Use _id consistently
   const distributorId = req.user._id;
-  const { name, description, price, category, stock, unit } = req.body;
+  const { name, description, price, category, stock, unit, minQuantity, maxQuantity, acceptedPaymentMethods } = req.body;
 
   // Validate required fields
   if (!name || !name.trim()) {
@@ -82,6 +82,37 @@ exports.addProduct = asyncHandler(async (req, res) => {
     throw new ValidationError('Stock must be 0 or greater');
   }
 
+  // Validate min/max quantity
+  if (minQuantity !== undefined && minQuantity < 1) {
+    throw new ValidationError('Minimum quantity must be at least 1');
+  }
+
+  if (maxQuantity !== undefined && maxQuantity !== null && minQuantity !== undefined && maxQuantity < minQuantity) {
+    throw new ValidationError('Maximum quantity must be greater than or equal to minimum quantity');
+  }
+
+  // Validate payment methods
+  let parsedPaymentMethods = acceptedPaymentMethods;
+  if (acceptedPaymentMethods) {
+    // Parse if it's a JSON string (from FormData)
+    if (typeof acceptedPaymentMethods === 'string') {
+      try {
+        parsedPaymentMethods = JSON.parse(acceptedPaymentMethods);
+      } catch (e) {
+        throw new ValidationError('Invalid payment methods format');
+      }
+    }
+
+    if (!Array.isArray(parsedPaymentMethods) || parsedPaymentMethods.length === 0) {
+      throw new ValidationError('At least one payment method must be selected');
+    }
+    const validPaymentMethods = ['COD', 'Online'];
+    const invalidMethods = parsedPaymentMethods.filter(method => !validPaymentMethods.includes(method));
+    if (invalidMethods.length > 0) {
+      throw new ValidationError(`Invalid payment methods: ${invalidMethods.join(', ')}`);
+    }
+  }
+
   let imageUrl = '';
 
   // Upload image to Cloudinary if provided
@@ -104,6 +135,9 @@ exports.addProduct = asyncHandler(async (req, res) => {
     unit: unit || 'unit',
     image: imageUrl,
     distributor: distributorId,
+    minQuantity: minQuantity !== undefined ? parseInt(minQuantity) : 1,
+    maxQuantity: maxQuantity !== undefined && maxQuantity !== null ? parseInt(maxQuantity) : null,
+    acceptedPaymentMethods: parsedPaymentMethods || ['COD', 'Online'],
     isActive: true
   });
 
@@ -121,7 +155,7 @@ exports.updateProduct = asyncHandler(async (req, res) => {
   const { productId } = req.params;
   // FIX: Use _id consistently
   const distributorId = req.user._id;
-  const { name, description, price, category, stock, unit, isActive } = req.body;
+  const { name, description, price, category, stock, unit, isActive, minQuantity, maxQuantity, acceptedPaymentMethods } = req.body;
 
   // Check if product belongs to distributor
   const product = await Product.findOne({
@@ -178,6 +212,53 @@ exports.updateProduct = asyncHandler(async (req, res) => {
 
   if (typeof isActive === 'boolean') {
     product.isActive = isActive;
+  }
+
+  // Update min/max quantity
+  if (minQuantity !== undefined) {
+    const minQty = parseInt(minQuantity);
+    if (minQty < 1) {
+      throw new ValidationError('Minimum quantity must be at least 1');
+    }
+    product.minQuantity = minQty;
+  }
+
+  if (maxQuantity !== undefined) {
+    if (maxQuantity === null || maxQuantity === '') {
+      product.maxQuantity = null;
+    } else {
+      const maxQty = parseInt(maxQuantity);
+      if (maxQty < 1) {
+        throw new ValidationError('Maximum quantity must be at least 1');
+      }
+      if (maxQty < product.minQuantity) {
+        throw new ValidationError('Maximum quantity must be greater than or equal to minimum quantity');
+      }
+      product.maxQuantity = maxQty;
+    }
+  }
+
+  // Update payment methods
+  if (acceptedPaymentMethods !== undefined) {
+    let parsedPaymentMethods = acceptedPaymentMethods;
+    // Parse if it's a JSON string (from FormData)
+    if (typeof acceptedPaymentMethods === 'string') {
+      try {
+        parsedPaymentMethods = JSON.parse(acceptedPaymentMethods);
+      } catch (e) {
+        throw new ValidationError('Invalid payment methods format');
+      }
+    }
+
+    if (!Array.isArray(parsedPaymentMethods) || parsedPaymentMethods.length === 0) {
+      throw new ValidationError('At least one payment method must be selected');
+    }
+    const validPaymentMethods = ['COD', 'Online'];
+    const invalidMethods = parsedPaymentMethods.filter(method => !validPaymentMethods.includes(method));
+    if (invalidMethods.length > 0) {
+      throw new ValidationError(`Invalid payment methods: ${invalidMethods.join(', ')}`);
+    }
+    product.acceptedPaymentMethods = parsedPaymentMethods;
   }
 
   // Upload new image if provided
@@ -394,6 +475,85 @@ exports.updateOrderStatus = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     message: 'Order status updated successfully',
+    order
+  });
+});
+
+// @desc    Approve order with delivery price
+// @route   PUT /api/distributor/orders/:orderId/approve
+// @access  Private (Distributor only)
+exports.approveOrder = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const { deliveryCharge } = req.body;
+  const distributorId = req.user._id;
+
+  // Validate delivery charge
+  if (deliveryCharge !== undefined && deliveryCharge !== null) {
+    const deliveryChargeNum = parseFloat(deliveryCharge);
+    if (isNaN(deliveryChargeNum) || deliveryChargeNum < 0) {
+      throw new ValidationError('Delivery charge must be a non-negative number');
+    }
+  }
+
+  const order = await Order.findById(orderId);
+
+  if (!order) {
+    throw new NotFoundError('Order not found');
+  }
+
+  // SECURITY: Verify distributor owns this order
+  if (order.distributor.toString() !== distributorId.toString()) {
+    throw new AuthorizationError('You are not authorized to approve this order');
+  }
+
+  // Use the Order model's approveOrder method
+  await order.approveOrder(distributorId, deliveryCharge !== undefined ? parseFloat(deliveryCharge) : undefined);
+
+  // Populate order details before sending response
+  await order.populate('user', 'name email phone');
+  await order.populate('items.product', 'name price image');
+
+  res.json({
+    success: true,
+    message: 'Order approved successfully',
+    order
+  });
+});
+
+// @desc    Reject order
+// @route   PUT /api/distributor/orders/:orderId/reject
+// @access  Private (Distributor only)
+exports.rejectOrder = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const { reason } = req.body;
+  const distributorId = req.user._id;
+
+  // Validate rejection reason
+  if (!reason || !reason.trim()) {
+    throw new ValidationError('Rejection reason is required');
+  }
+
+  const order = await Order.findById(orderId);
+
+  if (!order) {
+    throw new NotFoundError('Order not found');
+  }
+
+  // SECURITY: Verify distributor owns this order
+  if (order.distributor.toString() !== distributorId.toString()) {
+    throw new AuthorizationError('You are not authorized to reject this order');
+  }
+
+  // Use the Order model's rejectOrder method
+  await order.rejectOrder(distributorId, reason.trim());
+
+  // Populate order details before sending response
+  await order.populate('user', 'name email phone');
+  await order.populate('items.product', 'name price image');
+
+  res.json({
+    success: true,
+    message: 'Order rejected successfully',
     order
   });
 });

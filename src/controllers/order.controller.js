@@ -12,12 +12,6 @@ exports.createOrder = asyncHandler(async (req, res) => {
   // FIX: Use _id consistently
   const userId = req.user._id;
 
-  console.log('=== CREATE ORDER DEBUG ===');
-  console.log('Request body:', JSON.stringify(req.body, null, 2));
-  console.log('Payment method:', req.body.paymentMethod);
-  console.log('Distributor:', req.body.distributor);
-  console.log('=========================');
-
   const { items, shippingAddress, paymentMethod, couponCode, distributor } = req.body;
 
   // Validate required fields
@@ -83,9 +77,11 @@ exports.createOrder = asyncHandler(async (req, res) => {
     coupon = result.couponId;
   }
 
-  const tax = subtotal * 0.18; // 18% GST
-  const deliveryCharge = subtotal > 1000 ? 0 : 50; // Free delivery above ₹1000
-  const totalAmount = subtotal + tax + deliveryCharge - discount;
+  // No tax applied
+  const tax = 0;
+  // Delivery charge will be set by distributor after approval
+  const deliveryCharge = 0;
+  const totalAmount = subtotal + deliveryCharge - discount;
 
   const orderData = {
     user: userId,
@@ -94,7 +90,7 @@ exports.createOrder = asyncHandler(async (req, res) => {
     subtotal,
     discount,
     tax,
-    taxPercentage: 18,
+    taxPercentage: 0,
     deliveryCharge,
     totalAmount,
     shippingAddress,

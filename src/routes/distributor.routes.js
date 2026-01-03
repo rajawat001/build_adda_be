@@ -21,6 +21,8 @@ router.delete('/products/:productId', distributorController.deleteProduct);
 // Order management
 router.get('/orders', distributorController.getDistributorOrders);
 router.put('/orders/:orderId', distributorController.updateOrderStatus);
+router.put('/orders/:orderId/approve', distributorController.approveOrder);
+router.put('/orders/:orderId/reject', distributorController.rejectOrder);
 
 // Profile management
 router.get('/profile', distributorController.getProfile);
