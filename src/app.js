@@ -135,7 +135,7 @@ app.use('/api/distributor', require('./routes/distributor.routes'));
 app.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'BuildMat API is running',
+    message: 'BuildAdda API is running',
     environment: process.env.NODE_ENV || 'development',
     timestamp: new Date().toISOString()
   });
@@ -145,7 +145,7 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     success: true,
-    message: 'BuildMat API',
+    message: 'BuildAdda API',
     version: '1.0.0',
     documentation: '/api/docs'  // Add API documentation later
   });
@@ -176,7 +176,7 @@ const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
   console.log(`
 ╔════════════════════════════════════════╗
-║   BuildMat E-commerce API Server      ║
+║   BuildAdda E-commerce API Server      ║
 ║   Port: ${PORT}                           ║
 ║   Environment: ${process.env.NODE_ENV || 'development'}         ║
 ║   Status: READY ✓                      ║

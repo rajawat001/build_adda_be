@@ -30,7 +30,7 @@ const createAdmin = async () => {
       phone: '9999999999',
       role: 'admin',
       pincode: '302001',
-      address: 'BuildMat HQ, Jaipur',
+      address: 'BuildAdda HQ, Jaipur',
       location: {
         type: 'Point',
         coordinates: [75.7873, 26.9124]

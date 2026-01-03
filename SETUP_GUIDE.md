@@ -217,7 +217,7 @@ GET http://localhost:5000/
 Expected response:
 ```json
 {
-  "message": "BuildMat API is running"
+  "message": "BuildAdda API is running"
 }
 ```
 
@@ -227,7 +227,7 @@ Open browser:
 http://localhost:3000
 ```
 
-You should see the BuildMat homepage.
+You should see the BuildAdda homepage.
 
 #### 4.3 Test Login
 Try logging in with:
