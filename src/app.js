@@ -76,7 +76,7 @@ app.use(cors({
 // SECURITY: Rate limiting to prevent brute force attacks
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: process.env.NODE_ENV === 'development' ? 50000 : 100, // Higher limit in development
   message: 'Too many requests from this IP, please try again later',
   standardHeaders: true,
   legacyHeaders: false
@@ -130,6 +130,7 @@ app.use('/api/orders', require('./routes/order.routes'));
 app.use('/api/users', require('./routes/user.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
 app.use('/api/distributor', require('./routes/distributor.routes'));
+app.use('/api/notifications', require('./routes/notification.routes'));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
