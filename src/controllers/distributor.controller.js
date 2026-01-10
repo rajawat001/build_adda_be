@@ -4,6 +4,7 @@ const Distributor = require('../models/Distributor');
 const { uploadToCloudinary } = require('../config/cloudinary');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, NotFoundError, AuthorizationError } = require('../utils/errors');
+const { createNotification } = require('./notification.controller');
 
 // @desc    Get distributor's products with pagination
 // @route   GET /api/distributor/products
@@ -472,6 +473,32 @@ exports.updateOrderStatus = asyncHandler(async (req, res) => {
   // Use the Order model's updateStatus method
   await order.updateStatus(orderStatus, note || '', distributorId, 'Distributor');
 
+  // Populate order to get user details
+  await order.populate('user', 'name email phone');
+
+  // Create notification for user about status update
+  const statusMessages = {
+    confirmed: 'Your order has been confirmed',
+    processing: 'Your order is being processed',
+    shipped: 'Your order has been shipped',
+    delivered: 'Your order has been delivered'
+  };
+
+  const notificationTypes = {
+    confirmed: 'order_confirmed',
+    processing: 'order_confirmed',
+    shipped: 'order_shipped',
+    delivered: 'order_delivered'
+  };
+
+  await createNotification(order.user._id, {
+    type: notificationTypes[orderStatus] || 'general',
+    title: 'Order Status Updated',
+    message: `${statusMessages[orderStatus] || 'Your order status has been updated'} - #${order.orderNumber}`,
+    orderId: order._id,
+    orderNumber: order.orderNumber
+  });
+
   res.json({
     success: true,
     message: 'Order status updated successfully',
@@ -513,6 +540,15 @@ exports.approveOrder = asyncHandler(async (req, res) => {
   await order.populate('user', 'name email phone');
   await order.populate('items.product', 'name price image');
 
+  // Create notification for user about order approval
+  await createNotification(order.user._id, {
+    type: 'order_approved',
+    title: 'Order Approved',
+    message: `Your order #${order.orderNumber} has been approved and confirmed`,
+    orderId: order._id,
+    orderNumber: order.orderNumber
+  });
+
   res.json({
     success: true,
     message: 'Order approved successfully',
@@ -550,6 +586,15 @@ exports.rejectOrder = asyncHandler(async (req, res) => {
   // Populate order details before sending response
   await order.populate('user', 'name email phone');
   await order.populate('items.product', 'name price image');
+
+  // Create notification for user about order rejection
+  await createNotification(order.user._id, {
+    type: 'order_rejected',
+    title: 'Order Rejected',
+    message: `Your order #${order.orderNumber} has been rejected. Reason: ${reason.trim()}`,
+    orderId: order._id,
+    orderNumber: order.orderNumber
+  });
 
   res.json({
     success: true,

@@ -2,6 +2,7 @@ const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Coupon = require('../models/Coupon');
 const Transaction = require('../models/Transaction');
+const { createNotification } = require('../controllers/notification.controller');
 
 class OrderService {
   // Generate unique order number
@@ -24,6 +25,17 @@ class OrderService {
       await Product.findByIdAndUpdate(item.product, {
         $inc: { stock: -item.quantity }
       });
+    }
+
+    // Create notification for distributor about new order
+    if (orderData.distributor) {
+      await createNotification(orderData.distributor, {
+        type: 'order_placed',
+        title: 'New Order Received',
+        message: `New order #${order.orderNumber} has been placed`,
+        orderId: order._id,
+        orderNumber: order.orderNumber
+      }, 'Distributor');
     }
 
     return await this.getOrderById(order._id);

@@ -113,10 +113,11 @@ exports.deleteAllNotifications = async (req, res, next) => {
 };
 
 // Create a notification (internal use - for order updates, etc.)
-exports.createNotification = async (userId, data) => {
+exports.createNotification = async (userId, data, userModel = 'User') => {
   try {
     const notification = await Notification.create({
       user: userId,
+      userModel: userModel,
       ...data
     });
     return notification;
