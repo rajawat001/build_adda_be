@@ -129,6 +129,13 @@ app.use('/api/products', require('./routes/product.routes'));
 app.use('/api/orders', require('./routes/order.routes'));
 app.use('/api/users', require('./routes/user.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
+app.use('/api/admin/categories', require('./routes/category.routes'));
+app.use('/api/admin/roles', require('./routes/role.routes'));
+app.use('/api/admin/email-templates', require('./routes/emailTemplate.routes'));
+app.use('/api/admin/reviews', require('./routes/review.routes'));
+app.use('/api/admin/activity-logs', require('./routes/activityLog.routes'));
+app.use('/api/admin/settings', require('./routes/settings.routes'));
+app.use('/api/admin/analytics', require('./routes/analytics.routes'));
 app.use('/api/distributor', require('./routes/distributor.routes'));
 app.use('/api/notifications', require('./routes/notification.routes'));
 

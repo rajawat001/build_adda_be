@@ -24,7 +24,14 @@ exports.getAdminStats = asyncHandler(async (req, res) => {
     Product.countDocuments(),
     Order.countDocuments(),
     Order.aggregate([
-      { $match: { paymentStatus: 'paid' } },
+      {
+        $match: {
+          $or: [
+            { paymentStatus: 'paid' },
+            { orderStatus: 'delivered' }
+          ]
+        }
+      },
       { $group: { _id: null, total: { $sum: '$totalAmount' } } }
     ])
   ]);
@@ -633,6 +640,749 @@ exports.updateOrderStatus = asyncHandler(async (req, res) => {
     success: true,
     message: 'Order status updated successfully',
     order
+  });
+});
+
+// ==================== BULK OPERATIONS ====================
+
+// @desc    Bulk activate users
+// @route   POST /api/admin/users/bulk-activate
+// @access  Private (Admin only)
+exports.bulkActivateUsers = asyncHandler(async (req, res) => {
+  const { userIds } = req.body;
+
+  if (!Array.isArray(userIds) || userIds.length === 0) {
+    throw new ValidationError('Please provide an array of user IDs');
+  }
+
+  const result = await User.updateMany(
+    { _id: { $in: userIds }, role: 'user' },
+    { $set: { isActive: true } }
+  );
+
+  res.json({
+    success: true,
+    message: `Successfully activated ${result.modifiedCount} user(s)`,
+    modifiedCount: result.modifiedCount
+  });
+});
+
+// @desc    Bulk deactivate users
+// @route   POST /api/admin/users/bulk-deactivate
+// @access  Private (Admin only)
+exports.bulkDeactivateUsers = asyncHandler(async (req, res) => {
+  const { userIds } = req.body;
+  const adminId = req.user._id;
+
+  if (!Array.isArray(userIds) || userIds.length === 0) {
+    throw new ValidationError('Please provide an array of user IDs');
+  }
+
+  // Prevent admin from deactivating themselves
+  if (userIds.includes(adminId.toString())) {
+    throw new ValidationError('You cannot deactivate your own account');
+  }
+
+  const result = await User.updateMany(
+    { _id: { $in: userIds }, role: 'user', _id: { $ne: adminId } },
+    { $set: { isActive: false } }
+  );
+
+  res.json({
+    success: true,
+    message: `Successfully deactivated ${result.modifiedCount} user(s)`,
+    modifiedCount: result.modifiedCount
+  });
+});
+
+// @desc    Bulk delete users
+// @route   DELETE /api/admin/users/bulk-delete
+// @access  Private (Admin only)
+exports.bulkDeleteUsers = asyncHandler(async (req, res) => {
+  const { userIds } = req.body;
+  const adminId = req.user._id;
+
+  if (!Array.isArray(userIds) || userIds.length === 0) {
+    throw new ValidationError('Please provide an array of user IDs');
+  }
+
+  // Prevent admin from deleting themselves
+  if (userIds.includes(adminId.toString())) {
+    throw new ValidationError('You cannot delete your own account');
+  }
+
+  const result = await User.deleteMany({
+    _id: { $in: userIds },
+    role: 'user',
+    _id: { $ne: adminId }
+  });
+
+  res.json({
+    success: true,
+    message: `Successfully deleted ${result.deletedCount} user(s)`,
+    deletedCount: result.deletedCount
+  });
+});
+
+// @desc    Bulk approve distributors
+// @route   POST /api/admin/distributors/bulk-approve
+// @access  Private (Admin only)
+exports.bulkApproveDistributors = asyncHandler(async (req, res) => {
+  const { distributorIds } = req.body;
+  const adminId = req.user._id;
+
+  if (!Array.isArray(distributorIds) || distributorIds.length === 0) {
+    throw new ValidationError('Please provide an array of distributor IDs');
+  }
+
+  const result = await Distributor.updateMany(
+    { _id: { $in: distributorIds } },
+    {
+      $set: {
+        isApproved: true,
+        approvedBy: adminId,
+        approvedAt: new Date(),
+        rejectionReason: null
+      }
+    }
+  );
+
+  res.json({
+    success: true,
+    message: `Successfully approved ${result.modifiedCount} distributor(s)`,
+    modifiedCount: result.modifiedCount
+  });
+});
+
+// @desc    Bulk reject distributors
+// @route   POST /api/admin/distributors/bulk-reject
+// @access  Private (Admin only)
+exports.bulkRejectDistributors = asyncHandler(async (req, res) => {
+  const { distributorIds, rejectionReason = 'Rejected by admin' } = req.body;
+
+  if (!Array.isArray(distributorIds) || distributorIds.length === 0) {
+    throw new ValidationError('Please provide an array of distributor IDs');
+  }
+
+  const result = await Distributor.updateMany(
+    { _id: { $in: distributorIds } },
+    {
+      $set: {
+        isApproved: false,
+        approvedBy: null,
+        approvedAt: null,
+        rejectionReason
+      }
+    }
+  );
+
+  res.json({
+    success: true,
+    message: `Successfully rejected ${result.modifiedCount} distributor(s)`,
+    modifiedCount: result.modifiedCount
+  });
+});
+
+// @desc    Bulk delete distributors
+// @route   DELETE /api/admin/distributors/bulk-delete
+// @access  Private (Admin only)
+exports.bulkDeleteDistributors = asyncHandler(async (req, res) => {
+  const { distributorIds } = req.body;
+
+  if (!Array.isArray(distributorIds) || distributorIds.length === 0) {
+    throw new ValidationError('Please provide an array of distributor IDs');
+  }
+
+  // Delete all products from these distributors first
+  await Product.deleteMany({ distributor: { $in: distributorIds } });
+
+  // Delete the distributors
+  const result = await Distributor.deleteMany({
+    _id: { $in: distributorIds }
+  });
+
+  res.json({
+    success: true,
+    message: `Successfully deleted ${result.deletedCount} distributor(s) and their products`,
+    deletedCount: result.deletedCount
+  });
+});
+
+// @desc    Bulk delete products
+// @route   DELETE /api/admin/products/bulk-delete
+// @access  Private (Admin only)
+exports.bulkDeleteProducts = asyncHandler(async (req, res) => {
+  const { productIds } = req.body;
+
+  if (!Array.isArray(productIds) || productIds.length === 0) {
+    throw new ValidationError('Please provide an array of product IDs');
+  }
+
+  const result = await Product.deleteMany({
+    _id: { $in: productIds }
+  });
+
+  res.json({
+    success: true,
+    message: `Successfully deleted ${result.deletedCount} product(s)`,
+    deletedCount: result.deletedCount
+  });
+});
+
+// ==================== ANALYTICS ENDPOINTS ====================
+
+// @desc    Get comprehensive dashboard analytics
+// @route   GET /api/admin/analytics/dashboard
+// @access  Private (Admin only)
+exports.getDashboardAnalytics = asyncHandler(async (req, res) => {
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+  // Revenue metrics (include delivered orders)
+  const [currentRevenue, previousRevenue] = await Promise.all([
+    Order.aggregate([
+      {
+        $match: {
+          $or: [
+            { paymentStatus: 'paid' },
+            { orderStatus: 'delivered' }
+          ],
+          createdAt: { $gte: thirtyDaysAgo }
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+    ]),
+    Order.aggregate([
+      {
+        $match: {
+          $or: [
+            { paymentStatus: 'paid' },
+            { orderStatus: 'delivered' }
+          ],
+          createdAt: { $gte: sixtyDaysAgo, $lt: thirtyDaysAgo }
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+    ])
+  ]);
+
+  const totalRevenue = currentRevenue[0]?.total || 0;
+  const previousPeriodRevenue = previousRevenue[0]?.total || 0;
+  const revenueTrend = previousPeriodRevenue > 0
+    ? ((totalRevenue - previousPeriodRevenue) / previousPeriodRevenue * 100).toFixed(1)
+    : 100;
+
+  // Order metrics
+  const [currentOrders, previousOrders, totalOrders] = await Promise.all([
+    Order.countDocuments({ createdAt: { $gte: thirtyDaysAgo } }),
+    Order.countDocuments({ createdAt: { $gte: sixtyDaysAgo, $lt: thirtyDaysAgo } }),
+    Order.countDocuments()
+  ]);
+
+  const orderTrend = previousOrders > 0
+    ? ((currentOrders - previousOrders) / previousOrders * 100).toFixed(1)
+    : 100;
+
+  // User metrics
+  const [currentUsers, previousUsers, totalUsers] = await Promise.all([
+    User.countDocuments({ role: 'user', createdAt: { $gte: thirtyDaysAgo } }),
+    User.countDocuments({ role: 'user', createdAt: { $gte: sixtyDaysAgo, $lt: thirtyDaysAgo } }),
+    User.countDocuments({ role: 'user' })
+  ]);
+
+  const userTrend = previousUsers > 0
+    ? ((currentUsers - previousUsers) / previousUsers * 100).toFixed(1)
+    : 100;
+
+  // Distributor metrics
+  const [approvedDistributors, pendingDistributors, totalDistributors] = await Promise.all([
+    Distributor.countDocuments({ isApproved: true, isActive: true }),
+    Distributor.countDocuments({ isApproved: false }),
+    Distributor.countDocuments()
+  ]);
+
+  // Revenue by day for last 30 days (include delivered orders)
+  const revenueByDay = await Order.aggregate([
+    {
+      $match: {
+        $or: [
+          { paymentStatus: 'paid' },
+          { orderStatus: 'delivered' }
+        ],
+        createdAt: { $gte: thirtyDaysAgo }
+      }
+    },
+    {
+      $group: {
+        _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+        revenue: { $sum: '$totalAmount' }
+      }
+    },
+    { $sort: { _id: 1 } }
+  ]);
+
+  // Order status distribution
+  const orderStatusDistribution = await Order.aggregate([
+    {
+      $group: {
+        _id: '$orderStatus',
+        count: { $sum: 1 }
+      }
+    }
+  ]);
+
+  res.json({
+    success: true,
+    stats: {
+      revenue: {
+        total: totalRevenue,
+        trend: parseFloat(revenueTrend),
+        label: 'Last 30 days'
+      },
+      orders: {
+        total: totalOrders,
+        trend: parseFloat(orderTrend),
+        label: 'Last 30 days'
+      },
+      users: {
+        total: totalUsers,
+        trend: parseFloat(userTrend),
+        label: 'Last 30 days'
+      },
+      distributors: {
+        total: totalDistributors,
+        approved: approvedDistributors,
+        pending: pendingDistributors,
+        label: 'Active distributors'
+      },
+      revenueData: {
+        labels: revenueByDay.map(item => item._id),
+        data: revenueByDay.map(item => item.revenue)
+      },
+      orderStatusData: orderStatusDistribution.reduce((acc, item) => {
+        acc[item._id] = item.count;
+        return acc;
+      }, {})
+    }
+  });
+});
+
+// @desc    Get revenue analytics
+// @route   GET /api/admin/analytics/revenue
+// @access  Private (Admin only)
+exports.getRevenueAnalytics = asyncHandler(async (req, res) => {
+  const { period = 'month' } = req.query;
+
+  const now = new Date();
+  let startDate, groupFormat;
+
+  switch (period) {
+    case 'week':
+      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      groupFormat = '%Y-%m-%d';
+      break;
+    case 'month':
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      groupFormat = '%Y-%m-%d';
+      break;
+    case 'year':
+      startDate = new Date(now.getFullYear(), 0, 1);
+      groupFormat = '%Y-%m';
+      break;
+    default:
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      groupFormat = '%Y-%m-%d';
+  }
+
+  const revenueData = await Order.aggregate([
+    { $match: { paymentStatus: 'paid', createdAt: { $gte: startDate } } },
+    {
+      $group: {
+        _id: { $dateToString: { format: groupFormat, date: '$createdAt' } },
+        revenue: { $sum: '$totalAmount' },
+        orders: { $sum: 1 },
+        avgOrderValue: { $avg: '$totalAmount' }
+      }
+    },
+    { $sort: { _id: 1 } }
+  ]);
+
+  const totalRevenue = revenueData.reduce((sum, item) => sum + item.revenue, 0);
+  const totalOrders = revenueData.reduce((sum, item) => sum + item.orders, 0);
+  const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+  res.json({
+    success: true,
+    period,
+    totalRevenue,
+    totalOrders,
+    avgOrderValue,
+    data: revenueData
+  });
+});
+
+// @desc    Get user growth analytics
+// @route   GET /api/admin/analytics/users
+// @access  Private (Admin only)
+exports.getUserGrowthAnalytics = asyncHandler(async (req, res) => {
+  const { period = 'month' } = req.query;
+
+  const now = new Date();
+  let startDate, groupFormat;
+
+  switch (period) {
+    case 'week':
+      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      groupFormat = '%Y-%m-%d';
+      break;
+    case 'month':
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      groupFormat = '%Y-%m-%d';
+      break;
+    case 'year':
+      startDate = new Date(now.getFullYear(), 0, 1);
+      groupFormat = '%Y-%m';
+      break;
+    default:
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      groupFormat = '%Y-%m-%d';
+  }
+
+  const [userGrowth, distributorGrowth] = await Promise.all([
+    User.aggregate([
+      { $match: { role: 'user', createdAt: { $gte: startDate } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: groupFormat, date: '$createdAt' } },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]),
+    Distributor.aggregate([
+      { $match: { createdAt: { $gte: startDate } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: groupFormat, date: '$createdAt' } },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ])
+  ]);
+
+  res.json({
+    success: true,
+    period,
+    userGrowth,
+    distributorGrowth
+  });
+});
+
+// @desc    Get order analytics
+// @route   GET /api/admin/analytics/orders
+// @access  Private (Admin only)
+exports.getOrderAnalytics = asyncHandler(async (req, res) => {
+  const [
+    statusDistribution,
+    paymentStatusDistribution,
+    topDistributors
+  ] = await Promise.all([
+    Order.aggregate([
+      {
+        $group: {
+          _id: '$orderStatus',
+          count: { $sum: 1 },
+          totalAmount: { $sum: '$totalAmount' }
+        }
+      }
+    ]),
+    Order.aggregate([
+      {
+        $group: {
+          _id: '$paymentStatus',
+          count: { $sum: 1 },
+          totalAmount: { $sum: '$totalAmount' }
+        }
+      }
+    ]),
+    Order.aggregate([
+      { $match: { paymentStatus: 'paid' } },
+      {
+        $group: {
+          _id: '$distributor',
+          orders: { $sum: 1 },
+          revenue: { $sum: '$totalAmount' }
+        }
+      },
+      { $sort: { revenue: -1 } },
+      { $limit: 10 },
+      {
+        $lookup: {
+          from: 'distributors',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'distributorInfo'
+        }
+      },
+      { $unwind: '$distributorInfo' },
+      {
+        $project: {
+          businessName: '$distributorInfo.businessName',
+          orders: 1,
+          revenue: 1
+        }
+      }
+    ])
+  ]);
+
+  res.json({
+    success: true,
+    statusDistribution,
+    paymentStatusDistribution,
+    topDistributors
+  });
+});
+
+// @desc    Get category performance analytics
+// @route   GET /api/admin/analytics/categories
+// @access  Private (Admin only)
+exports.getCategoryPerformance = asyncHandler(async (req, res) => {
+  const Category = require('../models/Category');
+
+  const categoryPerformance = await Order.aggregate([
+    { $match: { paymentStatus: 'paid' } },
+    { $unwind: '$items' },
+    {
+      $lookup: {
+        from: 'products',
+        localField: 'items.product',
+        foreignField: '_id',
+        as: 'productInfo'
+      }
+    },
+    { $unwind: '$productInfo' },
+    {
+      $lookup: {
+        from: 'categories',
+        localField: 'productInfo.category',
+        foreignField: '_id',
+        as: 'categoryInfo'
+      }
+    },
+    { $unwind: { path: '$categoryInfo', preserveNullAndEmptyArrays: true } },
+    {
+      $group: {
+        _id: '$categoryInfo._id',
+        categoryName: { $first: '$categoryInfo.name' },
+        orders: { $sum: 1 },
+        revenue: { $sum: { $multiply: ['$items.quantity', '$items.price'] } },
+        quantity: { $sum: '$items.quantity' }
+      }
+    },
+    { $sort: { revenue: -1 } },
+    { $limit: 10 }
+  ]);
+
+  res.json({
+    success: true,
+    categoryPerformance
+  });
+});
+
+// @desc    Get user statistics
+// @route   GET /api/admin/users/stats
+// @access  Private (Admin only)
+exports.getUserStats = asyncHandler(async (req, res) => {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const [total, active, inactive, verified, newThisMonth] = await Promise.all([
+    User.countDocuments({ role: 'user' }),
+    User.countDocuments({ role: 'user', isActive: true }),
+    User.countDocuments({ role: 'user', isActive: false }),
+    User.countDocuments({ role: 'user', isVerified: true }),
+    User.countDocuments({ role: 'user', createdAt: { $gte: startOfMonth } })
+  ]);
+
+  const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+  const previousMonthUsers = await User.countDocuments({
+    role: 'user',
+    createdAt: { $gte: previousMonth, $lte: previousMonthEnd }
+  });
+
+  const trend = previousMonthUsers > 0
+    ? ((newThisMonth - previousMonthUsers) / previousMonthUsers * 100).toFixed(1)
+    : 100;
+
+  res.json({
+    success: true,
+    stats: {
+      total,
+      active,
+      inactive,
+      verified,
+      newThisMonth,
+      trend: parseFloat(trend)
+    }
+  });
+});
+
+// @desc    Get distributor statistics
+// @route   GET /api/admin/distributors/stats
+// @access  Private (Admin only)
+exports.getDistributorStats = asyncHandler(async (req, res) => {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const [total, approved, pending, active] = await Promise.all([
+    Distributor.countDocuments(),
+    Distributor.countDocuments({ isApproved: true }),
+    Distributor.countDocuments({ isApproved: false }),
+    Distributor.countDocuments({ isActive: true })
+  ]);
+
+  const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+  const previousMonthDistributors = await Distributor.countDocuments({
+    createdAt: { $gte: previousMonth, $lte: previousMonthEnd }
+  });
+
+  const currentMonthDistributors = await Distributor.countDocuments({
+    createdAt: { $gte: startOfMonth }
+  });
+
+  const trend = previousMonthDistributors > 0
+    ? ((currentMonthDistributors - previousMonthDistributors) / previousMonthDistributors * 100).toFixed(1)
+    : 100;
+
+  res.json({
+    success: true,
+    stats: {
+      total,
+      approved,
+      pending,
+      active,
+      trend: parseFloat(trend)
+    }
+  });
+});
+
+// @desc    Get product statistics
+// @route   GET /api/admin/products/stats
+// @access  Private (Admin only)
+exports.getProductStats = asyncHandler(async (req, res) => {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const [total, active, lowStock, outOfStock] = await Promise.all([
+    Product.countDocuments(),
+    Product.countDocuments({ isActive: true }),
+    Product.countDocuments({ stockQuantity: { $lt: 10, $gt: 0 } }),
+    Product.countDocuments({ stockQuantity: 0 })
+  ]);
+
+  const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+  const previousMonthProducts = await Product.countDocuments({
+    createdAt: { $gte: previousMonth, $lte: previousMonthEnd }
+  });
+
+  const currentMonthProducts = await Product.countDocuments({
+    createdAt: { $gte: startOfMonth }
+  });
+
+  const trend = previousMonthProducts > 0
+    ? ((currentMonthProducts - previousMonthProducts) / previousMonthProducts * 100).toFixed(1)
+    : 100;
+
+  res.json({
+    success: true,
+    stats: {
+      total,
+      active,
+      lowStock,
+      outOfStock,
+      trend: parseFloat(trend)
+    }
+  });
+});
+
+// @desc    Get order statistics
+// @route   GET /api/admin/orders/stats
+// @access  Private (Admin only)
+exports.getOrderStats = asyncHandler(async (req, res) => {
+  const [
+    total,
+    pending,
+    processing,
+    shipped,
+    delivered,
+    cancelled,
+    revenueResult
+  ] = await Promise.all([
+    Order.countDocuments(),
+    Order.countDocuments({ orderStatus: 'pending' }),
+    Order.countDocuments({ orderStatus: 'processing' }),
+    Order.countDocuments({ orderStatus: 'shipped' }),
+    Order.countDocuments({ orderStatus: 'delivered' }),
+    Order.countDocuments({ orderStatus: 'cancelled' }),
+    Order.aggregate([
+      { $match: { paymentStatus: 'paid' } },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+    ])
+  ]);
+
+  const totalRevenue = revenueResult[0]?.total || 0;
+
+  res.json({
+    success: true,
+    stats: {
+      total,
+      pending,
+      processing,
+      shipped,
+      delivered,
+      cancelled,
+      totalRevenue
+    }
+  });
+});
+
+// @desc    Get coupon statistics
+// @route   GET /api/admin/coupons/stats
+// @access  Private (Admin only)
+exports.getCouponStats = asyncHandler(async (req, res) => {
+  const now = new Date();
+
+  const [total, active, allCoupons] = await Promise.all([
+    Coupon.countDocuments(),
+    Coupon.countDocuments({ isActive: true, $or: [{ expiryDate: { $gte: now } }, { expiryDate: null }] }),
+    Coupon.find()
+  ]);
+
+  const expired = allCoupons.filter(coupon =>
+    coupon.expiryDate && new Date(coupon.expiryDate) < now
+  ).length;
+
+  const totalUsage = allCoupons.reduce((sum, coupon) => sum + (coupon.usageCount || 0), 0);
+
+  // Approximate total discount (would need order data for exact calculation)
+  const totalDiscount = 0; // TODO: Calculate from orders if needed
+
+  res.json({
+    success: true,
+    stats: {
+      total,
+      active,
+      expired,
+      totalUsage,
+      totalDiscount
+    }
   });
 });
 
