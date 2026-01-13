@@ -8,7 +8,11 @@
     "dev": "nodemon src/app.js",
     "create-admin": "node src/scripts/createAdmin.js",
     "create-distributor": "node src/scripts/createDistributor.js",
-    "seed-products": "node src/scripts/seedProducts.js"
+    "seed-products": "node src/scripts/seedProducts.js",
+    "seed": "node seeders/masterSeeder.js",
+    "seed:clear": "node seeders/masterSeeder.js --clear",
+    "setup:dev": "node seeders/masterSeeder.js --clear",
+    "setup:prod": "node seeders/masterSeeder.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -17,6 +21,7 @@
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
+    "csv-parser": "^3.2.0",
     "dotenv": "^16.6.1",
     "express": "^4.22.1",
     "express-mongo-sanitize": "^2.2.0",

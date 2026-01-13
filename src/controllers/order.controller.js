@@ -256,7 +256,7 @@ exports.confirmCOD = asyncHandler(async (req, res) => {
 exports.getMyOrders = asyncHandler(async (req, res) => {
   // FIX: Use _id consistently
   const userId = req.user._id;
-  const { page = 1, limit = 10, status } = req.query;
+  const { page = 1, limit = 20, status } = req.query;
 
   const filters = { user: userId };
   if (status) {

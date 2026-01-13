@@ -934,6 +934,70 @@ exports.getDashboardAnalytics = asyncHandler(async (req, res) => {
     }
   ]);
 
+  // Convert order status distribution to chart format
+  const statusMap = {
+    'pending': 'Pending',
+    'confirmed': 'Confirmed',
+    'processing': 'Processing',
+    'shipped': 'Shipped',
+    'delivered': 'Delivered',
+    'cancelled': 'Cancelled'
+  };
+
+  const orderStatusLabels = ['Pending', 'Confirmed', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
+  const orderStatusData = orderStatusLabels.map(label => {
+    const statusKey = Object.keys(statusMap).find(key => statusMap[key] === label);
+    const statusItem = orderStatusDistribution.find(item => item._id === statusKey);
+    return statusItem ? statusItem.count : 0;
+  });
+
+  // Category performance - sales by category
+  const Category = require('../models/Category');
+  const categoryPerformance = await Order.aggregate([
+    {
+      $match: {
+        $or: [
+          { paymentStatus: 'paid' },
+          { orderStatus: 'delivered' }
+        ]
+      }
+    },
+    { $unwind: '$items' },
+    {
+      $lookup: {
+        from: 'products',
+        localField: 'items.product',
+        foreignField: '_id',
+        as: 'productInfo'
+      }
+    },
+    { $unwind: '$productInfo' },
+    {
+      $lookup: {
+        from: 'categories',
+        localField: 'productInfo.category',
+        foreignField: '_id',
+        as: 'categoryInfo'
+      }
+    },
+    { $unwind: { path: '$categoryInfo', preserveNullAndEmptyArrays: true } },
+    {
+      $group: {
+        _id: '$categoryInfo.name',
+        sales: { $sum: { $multiply: ['$items.quantity', '$items.price'] } }
+      }
+    },
+    { $sort: { sales: -1 } },
+    { $limit: 10 }
+  ]);
+
+  const categoryLabels = categoryPerformance.map(item => item._id || 'Uncategorized');
+  const categorySales = categoryPerformance.map(item => item.sales);
+
+  // Other metrics
+  const pendingOrders = await Order.countDocuments({ orderStatus: 'pending' });
+  const lowStockProducts = await Product.countDocuments({ stock: { $lt: 10 } });
+
   res.json({
     success: true,
     stats: {
@@ -958,14 +1022,27 @@ exports.getDashboardAnalytics = asyncHandler(async (req, res) => {
         pending: pendingDistributors,
         label: 'Active distributors'
       },
+      pendingOrders,
+      lowStockProducts,
+      pendingApprovals: pendingDistributors,
+      trends: {
+        revenue: parseFloat(revenueTrend),
+        orders: parseFloat(orderTrend),
+        users: parseFloat(userTrend),
+        distributors: 0
+      },
       revenueData: {
         labels: revenueByDay.map(item => item._id),
         data: revenueByDay.map(item => item.revenue)
       },
-      orderStatusData: orderStatusDistribution.reduce((acc, item) => {
-        acc[item._id] = item.count;
-        return acc;
-      }, {})
+      orderStatusData: {
+        labels: orderStatusLabels,
+        data: orderStatusData
+      },
+      categoryData: {
+        labels: categoryLabels,
+        data: categorySales
+      }
     }
   });
 });

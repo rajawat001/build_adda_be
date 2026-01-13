@@ -13,7 +13,7 @@ const escapeRegex = (text) => {
 // @route   GET /api/products
 // @access  Public
 exports.getAllProducts = asyncHandler(async (req, res) => {
-  const { category, minPrice, maxPrice, search, sortBy, page = 1, limit = 20 } = req.query;
+  const { category, minPrice, maxPrice, search, sortBy, page = 1, limit = 24 } = req.query;
 
   const filters = { isActive: true }; // Only show active products
 
@@ -51,7 +51,7 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
 
   // Validate and limit pagination
   const pageNum = Math.max(1, parseInt(page));
-  const limitNum = Math.min(100, Math.max(1, parseInt(limit))); // Max 100 items
+  const limitNum = Math.min(100, Math.max(1, parseInt(limit))); // Max 100 items per request for infinite scroll
 
   const options = {
     page: pageNum,
