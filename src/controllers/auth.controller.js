@@ -8,7 +8,7 @@ const { ValidationError, NotFoundError, AuthenticationError } = require('../util
 // @route   POST /api/auth/register
 // @access  Public
 const register = asyncHandler(async (req, res) => {
-  const { name, email, password, phone, location, role, businessName, pincode, address } = req.body;
+  const { name, email, password, phone, location, role, businessName, pincode, address, city, state } = req.body;
 
   // Check if user already exists (check both User and Distributor)
   const existingUser = await User.findOne({ email });
@@ -25,16 +25,20 @@ const register = asyncHandler(async (req, res) => {
     // Create distributor
     user = await Distributor.create({
       businessName: businessName || name,
+      name, // Contact person name (required)
       email,
       password,
       phone,
       pincode,
       address,
+      city, // Required field
+      state, // Required field
       location,
       isApproved: false  // Distributors need approval
     });
   } else {
     // Create regular user
+    // Note: city and state are stored in user's addresses, not at user level
     user = await User.create({
       name,
       email,
