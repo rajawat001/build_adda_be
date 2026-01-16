@@ -40,6 +40,23 @@ const couponSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  applicableFor: {
+    type: String,
+    enum: ['products', 'subscription', 'both'],
+    default: 'products'
+  },
+  freeMonths: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  description: {
+    type: String
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
   }
 }, {
   timestamps: true

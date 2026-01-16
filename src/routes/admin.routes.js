@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/admin.controller');
+const adminSubscriptionController = require('../controllers/adminSubscription.controller');
 const authMiddleware = require('../middleware/auth.middleware');
 const roleMiddleware = require('../middleware/role.middleware');
 
@@ -57,5 +58,23 @@ router.put('/orders/:orderId', adminController.updateOrderStatus);
 
 // Transaction reports
 router.get('/transactions', adminController.getTransactionReports);
+
+// Subscription Plans management
+router.get('/subscription-plans/stats', adminSubscriptionController.getPlanStats);
+router.get('/subscription-plans', adminSubscriptionController.getAllPlans);
+router.get('/subscription-plans/:planId', adminSubscriptionController.getPlan);
+router.post('/subscription-plans', adminSubscriptionController.createPlan);
+router.put('/subscription-plans/:planId', adminSubscriptionController.updatePlan);
+router.delete('/subscription-plans/:planId', adminSubscriptionController.deletePlan);
+
+// Subscriptions management
+router.get('/subscriptions', adminSubscriptionController.getAllSubscriptions);
+router.get('/subscriptions/:subscriptionId', adminSubscriptionController.getSubscription);
+router.put('/subscriptions/:subscriptionId/cancel', adminSubscriptionController.cancelSubscription);
+router.put('/subscriptions/:subscriptionId/extend', adminSubscriptionController.extendSubscription);
+
+// Subscription Coupons
+router.get('/subscription-coupons', adminSubscriptionController.getSubscriptionCoupons);
+router.post('/subscription-coupons', adminSubscriptionController.createSubscriptionCoupon);
 
 module.exports = router;

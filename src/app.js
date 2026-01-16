@@ -138,6 +138,7 @@ app.use('/api/admin/settings', require('./routes/settings.routes'));
 app.use('/api/admin/analytics', require('./routes/analytics.routes'));
 app.use('/api/distributor', require('./routes/distributor.routes'));
 app.use('/api/notifications', require('./routes/notification.routes'));
+app.use('/api/subscriptions', require('./routes/subscription.routes'));
 
 // Health check endpoint
 app.get('/health', (req, res) => {

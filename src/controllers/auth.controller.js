@@ -155,7 +155,7 @@ const getProfile = asyncHandler(async (req, res) => {
   let user;
 
   if (req.user.role === 'distributor') {
-    user = await Distributor.findById(req.user._id).populate('products');
+    user = await Distributor.findById(req.user._id);
   } else {
     user = await User.findById(req.user._id).populate('wishlist');
   }
@@ -171,15 +171,21 @@ const getProfile = asyncHandler(async (req, res) => {
       user: {
         _id: user._id,
         businessName: user.businessName,
+        name: user.name,
         email: user.email,
         phone: user.phone,
         role: 'distributor',
         pincode: user.pincode,
         address: user.address,
+        city: user.city,
+        state: user.state,
         location: user.location,
         isApproved: user.isApproved,
         emailVerified: user.emailVerified,
-        products: user.products,
+        profileImage: user.profileImage,
+        description: user.description,
+        rating: user.rating,
+        reviewCount: user.reviewCount,
         createdAt: user.createdAt
       }
     });

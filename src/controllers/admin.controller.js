@@ -353,30 +353,50 @@ exports.deleteProduct = asyncHandler(async (req, res) => {
 // @route   POST /api/admin/coupons
 // @access  Private (Admin only)
 exports.createCoupon = asyncHandler(async (req, res) => {
-  const { code, discountType, discountValue, minPurchase, maxDiscount, expiryDate } = req.body;
+  const {
+    code,
+    discountType,
+    discountValue,
+    minPurchase,
+    maxDiscount,
+    expiryDate,
+    usageLimit,
+    applicableFor,
+    freeMonths,
+    description
+  } = req.body;
 
   // Validate required fields
   if (!code || !code.trim()) {
     throw new ValidationError('Coupon code is required');
   }
 
-  if (!discountType || !['percentage', 'fixed'].includes(discountType)) {
-    throw new ValidationError('Discount type must be either "percentage" or "fixed"');
-  }
+  // For free months coupon, discountType and discountValue can be defaulted
+  const hasFreeMonths = freeMonths && parseInt(freeMonths) > 0;
 
-  if (!discountValue || discountValue <= 0) {
-    throw new ValidationError('Discount value must be greater than 0');
-  }
+  if (!hasFreeMonths) {
+    if (!discountType || !['percentage', 'fixed'].includes(discountType)) {
+      throw new ValidationError('Discount type must be either "percentage" or "fixed"');
+    }
 
-  // Validate percentage range
-  if (discountType === 'percentage' && (discountValue < 1 || discountValue > 100)) {
-    throw new ValidationError('Percentage discount must be between 1 and 100');
+    if (!discountValue || discountValue <= 0) {
+      throw new ValidationError('Discount value must be greater than 0');
+    }
+
+    // Validate percentage range
+    if (discountType === 'percentage' && (discountValue < 1 || discountValue > 100)) {
+      throw new ValidationError('Percentage discount must be between 1 and 100');
+    }
   }
 
   // Validate expiry date
   if (expiryDate && new Date(expiryDate) < new Date()) {
     throw new ValidationError('Expiry date must be in the future');
   }
+
+  // Validate applicableFor
+  const validApplicableFor = ['products', 'subscription', 'both'];
+  const applicableForValue = applicableFor && validApplicableFor.includes(applicableFor) ? applicableFor : 'products';
 
   // Check if coupon code already exists
   const couponCode = code.trim().toUpperCase();
@@ -389,11 +409,16 @@ exports.createCoupon = asyncHandler(async (req, res) => {
   // Create coupon with field whitelisting
   const coupon = await Coupon.create({
     code: couponCode,
-    discountType,
-    discountValue: parseFloat(discountValue),
-    minPurchase: minPurchase ? parseFloat(minPurchase) : 0,
-    maxDiscount: maxDiscount ? parseFloat(maxDiscount) : 0,
-    expiryDate: expiryDate ? new Date(expiryDate) : null
+    discountType: hasFreeMonths ? 'percentage' : discountType,
+    discountValue: hasFreeMonths ? 100 : parseFloat(discountValue),
+    minOrderAmount: minPurchase ? parseFloat(minPurchase) : 0,
+    maxDiscount: maxDiscount ? parseFloat(maxDiscount) : null,
+    expiryDate: expiryDate ? new Date(expiryDate) : null,
+    usageLimit: usageLimit ? parseInt(usageLimit) : null,
+    applicableFor: applicableForValue,
+    freeMonths: hasFreeMonths ? parseInt(freeMonths) : 0,
+    description: description || '',
+    createdBy: req.user._id
   });
 
   res.status(201).json({
@@ -444,7 +469,17 @@ exports.getAllCoupons = asyncHandler(async (req, res) => {
 // @access  Private (Admin only)
 exports.updateCoupon = asyncHandler(async (req, res) => {
   const { couponId } = req.params;
-  const { discountValue, minPurchase, maxDiscount, expiryDate, isActive } = req.body;
+  const {
+    discountValue,
+    minPurchase,
+    maxDiscount,
+    expiryDate,
+    isActive,
+    usageLimit,
+    applicableFor,
+    freeMonths,
+    description
+  } = req.body;
 
   const coupon = await Coupon.findById(couponId);
 
@@ -465,23 +500,46 @@ exports.updateCoupon = asyncHandler(async (req, res) => {
   }
 
   if (minPurchase !== undefined) {
-    coupon.minPurchase = Math.max(0, parseFloat(minPurchase));
+    coupon.minOrderAmount = Math.max(0, parseFloat(minPurchase));
   }
 
   if (maxDiscount !== undefined) {
-    coupon.maxDiscount = Math.max(0, parseFloat(maxDiscount));
+    coupon.maxDiscount = maxDiscount ? Math.max(0, parseFloat(maxDiscount)) : null;
   }
 
   if (expiryDate !== undefined) {
-    const expiry = new Date(expiryDate);
-    if (expiry < new Date()) {
-      throw new ValidationError('Expiry date must be in the future');
+    if (expiryDate) {
+      const expiry = new Date(expiryDate);
+      if (expiry < new Date()) {
+        throw new ValidationError('Expiry date must be in the future');
+      }
+      coupon.expiryDate = expiry;
+    } else {
+      coupon.expiryDate = null;
     }
-    coupon.expiryDate = expiry;
   }
 
   if (typeof isActive === 'boolean') {
     coupon.isActive = isActive;
+  }
+
+  if (usageLimit !== undefined) {
+    coupon.usageLimit = usageLimit ? parseInt(usageLimit) : null;
+  }
+
+  if (applicableFor !== undefined) {
+    const validApplicableFor = ['products', 'subscription', 'both'];
+    if (validApplicableFor.includes(applicableFor)) {
+      coupon.applicableFor = applicableFor;
+    }
+  }
+
+  if (freeMonths !== undefined) {
+    coupon.freeMonths = freeMonths ? Math.max(0, parseInt(freeMonths)) : 0;
+  }
+
+  if (description !== undefined) {
+    coupon.description = description;
   }
 
   await coupon.save();

@@ -50,8 +50,18 @@ const protect = async (req, res, next) => {
     }
 
     // SECURITY: Check if distributor is approved (only for distributors)
+    // Allow non-approved distributors to access subscription and profile endpoints
     if (decoded.role === 'distributor' && !req.user.isApproved) {
-      throw new AuthorizationError('Your distributor account is pending approval');
+      const allowedPaths = [
+        '/api/subscriptions',
+        '/api/auth/profile',
+        '/api/auth/logout'
+      ];
+      const isAllowedPath = allowedPaths.some(path => req.originalUrl.startsWith(path));
+
+      if (!isAllowedPath) {
+        throw new AuthorizationError('Your distributor account is pending approval. Please purchase a subscription to activate your account.');
+      }
     }
 
     // SECURITY: Check if password was changed after token was issued
