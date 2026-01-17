@@ -342,9 +342,9 @@ exports.getDistributorStats = asyncHandler(async (req, res) => {
   const shippedOrders = allOrders.filter(o => o.orderStatus === 'shipped').length;
   const deliveredOrders = allOrders.filter(o => o.orderStatus === 'delivered').length;
 
-  // Calculate total revenue (only from paid orders)
+  // Calculate total revenue (only from delivered orders)
   const totalRevenue = allOrders
-    .filter(o => o.paymentStatus === 'paid')
+    .filter(o => o.orderStatus === 'delivered')
     .reduce((sum, order) => sum + order.totalAmount, 0);
 
   // Calculate revenue by month for the last 6 months
@@ -352,7 +352,8 @@ exports.getDistributorStats = asyncHandler(async (req, res) => {
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
   const recentOrders = allOrders.filter(o =>
-    new Date(o.createdAt) >= sixMonthsAgo && o.paymentStatus === 'paid'
+    new Date(o.createdAt) >= sixMonthsAgo &&
+    o.orderStatus === 'delivered'
   );
 
   const revenueByMonth = {};

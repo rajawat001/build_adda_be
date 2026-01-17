@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const subscriptionSchema = new mongoose.Schema({
   distributor: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    ref: 'Distributor',
     required: true
   },
   plan: {
