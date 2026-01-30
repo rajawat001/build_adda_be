@@ -5,11 +5,25 @@ const Distributor = require('../models/Distributor');
 // @route   GET /api/users/distributors
 // @access  Public
 exports.getAllDistributors = asyncHandler(async (req, res) => {
-  const distributors = await Distributor.find({
-    isApproved: true,
-    isActive: true
-  }).select('-password -resetPasswordToken -resetPasswordExpiry -verificationToken -bankAccountNumber -bankIFSC -failedLoginAttempts -lockUntil')
-    .sort('-rating');
+  const { search, page = 1, limit = 20 } = req.query;
+  const filters = { isApproved: true, isActive: true };
+
+  if (search && search.trim()) {
+    const escaped = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    filters.$or = [
+      { businessName: { $regex: escaped, $options: 'i' } },
+      { city: { $regex: escaped, $options: 'i' } },
+      { state: { $regex: escaped, $options: 'i' } }
+    ];
+  }
+
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+
+  const distributors = await Distributor.find(filters)
+    .select('-password -resetPasswordToken -resetPasswordExpiry -verificationToken -bankAccountNumber -bankIFSC -failedLoginAttempts -lockUntil')
+    .sort('-rating')
+    .skip(skip)
+    .limit(parseInt(limit));
 
   res.status(200).json({
     success: true,

@@ -41,11 +41,13 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
   }
 
   // FIX: Sanitize search to prevent ReDoS attacks
+  let searchTerm = null;
   if (search && search.trim()) {
-    const sanitizedSearch = escapeRegex(search.trim());
+    searchTerm = escapeRegex(search.trim());
     filters.$or = [
-      { name: { $regex: sanitizedSearch, $options: 'i' } },
-      { description: { $regex: sanitizedSearch, $options: 'i' } }
+      { name: { $regex: searchTerm, $options: 'i' } },
+      { description: { $regex: searchTerm, $options: 'i' } },
+      { category: { $regex: searchTerm, $options: 'i' } }
     ];
   }
 
@@ -62,7 +64,23 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
     ]
   };
 
-  const products = await productService.getProducts(filters, options);
+  // If search term provided, also find distributors matching the search
+  // and include their products in the query (since distributor is a ref,
+  // we can't regex it in the main $or query)
+  if (searchTerm) {
+    const matchingDistributors = await User.find({
+      role: 'distributor',
+      businessName: { $regex: searchTerm, $options: 'i' }
+    }).select('_id');
+
+    if (matchingDistributors.length > 0) {
+      const distributorIds = matchingDistributors.map(d => d._id);
+      // Add distributor match to the existing $or conditions
+      filters.$or.push({ distributor: { $in: distributorIds } });
+    }
+  }
+
+  let products = await productService.getProducts(filters, options);
 
   res.json({
     success: true,
