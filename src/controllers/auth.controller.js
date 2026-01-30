@@ -52,15 +52,29 @@ const register = asyncHandler(async (req, res) => {
     });
   } else {
     // Create regular user
-    // Note: city and state are stored in user's addresses, not at user level
-    user = await User.create({
+    const userData = {
       name,
       email,
       password,
       phone,
       location,
       role: 'user'
-    });
+    };
+
+    // If address fields provided, save as first default address
+    if (address && city && state && pincode) {
+      userData.addresses = [{
+        fullName: name,
+        phone,
+        address,
+        city,
+        state,
+        pincode,
+        isDefault: true
+      }];
+    }
+
+    user = await User.create(userData);
   }
 
   // Generate token

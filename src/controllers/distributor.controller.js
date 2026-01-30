@@ -55,7 +55,7 @@ exports.getDistributorProducts = asyncHandler(async (req, res) => {
 exports.addProduct = asyncHandler(async (req, res) => {
   // FIX: Use _id consistently
   const distributorId = req.user._id;
-  const { name, description, price, category, stock, unit, minQuantity, maxQuantity, acceptedPaymentMethods } = req.body;
+  const { name, description, price, realPrice, category, stock, unit, minQuantity, maxQuantity, acceptedPaymentMethods } = req.body;
 
   // Validate required fields
   if (!name || !name.trim()) {
@@ -66,8 +66,15 @@ exports.addProduct = asyncHandler(async (req, res) => {
     throw new ValidationError('Product description is required');
   }
 
-  if (!price || price <= 0) {
+  const priceNum = parseFloat(price);
+  if (!price || priceNum <= 0) {
     throw new ValidationError('Product price must be greater than 0');
+  }
+
+  // Validate realPrice (MRP) if provided
+  const realPriceNum = realPrice ? parseFloat(realPrice) : null;
+  if (realPriceNum !== null && realPriceNum < priceNum) {
+    throw new ValidationError('Real price (MRP) must be greater than or equal to selling price');
   }
 
   if (!category) {
@@ -127,10 +134,10 @@ exports.addProduct = asyncHandler(async (req, res) => {
   }
 
   // Create product with field whitelisting
-  const product = await Product.create({
+  const productData = {
     name: name.trim(),
     description: description.trim(),
-    price: parseFloat(price),
+    price: priceNum,
     category,
     stock: parseInt(stock),
     unit: unit || 'unit',
@@ -140,7 +147,13 @@ exports.addProduct = asyncHandler(async (req, res) => {
     maxQuantity: maxQuantity !== undefined && maxQuantity !== null ? parseInt(maxQuantity) : null,
     acceptedPaymentMethods: parsedPaymentMethods || ['COD', 'Online'],
     isActive: true
-  });
+  };
+
+  if (realPriceNum !== null) {
+    productData.realPrice = realPriceNum;
+  }
+
+  const product = await Product.create(productData);
 
   res.status(201).json({
     success: true,
@@ -156,7 +169,7 @@ exports.updateProduct = asyncHandler(async (req, res) => {
   const { productId } = req.params;
   // FIX: Use _id consistently
   const distributorId = req.user._id;
-  const { name, description, price, category, stock, unit, isActive, minQuantity, maxQuantity, acceptedPaymentMethods } = req.body;
+  const { name, description, price, realPrice, category, stock, unit, isActive, minQuantity, maxQuantity, acceptedPaymentMethods } = req.body;
 
   // Check if product belongs to distributor
   const product = await Product.findOne({
@@ -189,6 +202,22 @@ exports.updateProduct = asyncHandler(async (req, res) => {
       throw new ValidationError('Product price must be greater than 0');
     }
     product.price = priceNum;
+  }
+
+  if (realPrice !== undefined) {
+    if (realPrice === null || realPrice === '') {
+      product.realPrice = undefined;
+    } else {
+      const realPriceNum = parseFloat(realPrice);
+      if (realPriceNum < 0) {
+        throw new ValidationError('Real price (MRP) cannot be negative');
+      }
+      const currentPrice = price !== undefined ? parseFloat(price) : product.price;
+      if (realPriceNum < currentPrice) {
+        throw new ValidationError('Real price (MRP) must be greater than or equal to selling price');
+      }
+      product.realPrice = realPriceNum;
+    }
   }
 
   if (category !== undefined) {

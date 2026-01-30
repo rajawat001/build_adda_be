@@ -15,6 +15,17 @@ const productSchema = new mongoose.Schema({
     required: true,
     min: 0
   },
+  realPrice: {
+    type: Number,
+    min: 0,
+    validate: {
+      validator: function(value) {
+        if (value == null) return true;
+        return value >= this.price;
+      },
+      message: 'Real price (MRP) must be greater than or equal to selling price'
+    }
+  },
   category: {
     type: String,
     required: true,

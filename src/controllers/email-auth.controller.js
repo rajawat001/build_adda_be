@@ -204,7 +204,7 @@ const verifyRegisterOTP = asyncHandler(async (req, res) => {
       isApproved: false
     });
   } else {
-    user = await User.create({
+    const userData = {
       name,
       email,
       password,
@@ -212,7 +212,22 @@ const verifyRegisterOTP = asyncHandler(async (req, res) => {
       location,
       role: 'user',
       emailVerified: true
-    });
+    };
+
+    // If address fields provided, save as first default address
+    if (address && city && state && pincode) {
+      userData.addresses = [{
+        fullName: name,
+        phone,
+        address,
+        city,
+        state,
+        pincode,
+        isDefault: true
+      }];
+    }
+
+    user = await User.create(userData);
   }
 
   // Consume OTP
