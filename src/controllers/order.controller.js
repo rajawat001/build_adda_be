@@ -1,7 +1,10 @@
 const orderService = require('../services/order.service');
 const paymentService = require('../services/payment.service');
+const emailService = require('../services/email.service');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
+const User = require('../models/User');
+const Distributor = require('../models/Distributor');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, NotFoundError, AuthorizationError, AuthenticationError } = require('../utils/errors');
 
@@ -100,6 +103,27 @@ exports.createOrder = asyncHandler(async (req, res) => {
   };
 
   const order = await orderService.createOrder(orderData);
+
+  // Send email notifications (non-blocking)
+  const user = await User.findById(userId);
+  const dist = await Distributor.findById(distributor);
+  if (user) {
+    emailService.sendOrderConfirmationEmail(
+      { ...order.toObject(), userEmail: user.email },
+      user.name || 'Customer'
+    );
+  }
+  if (dist) {
+    emailService.sendNewOrderNotification(order, dist);
+  }
+
+  // Check low stock after order
+  for (const item of validatedItems) {
+    const product = await Product.findById(item.product);
+    if (product && product.stock <= 10 && dist) {
+      emailService.sendLowStockAlertEmail(dist, [{ name: product.name, stock: product.stock }]);
+    }
+  }
 
   res.status(201).json({
     success: true,
@@ -203,6 +227,12 @@ exports.verifyPayment = asyncHandler(async (req, res) => {
   order.paymentStatus = 'paid';
   order.orderStatus = 'confirmed';
   await order.save();
+
+  // Send payment confirmation email (non-blocking)
+  const payUser = await User.findById(userId);
+  if (payUser) {
+    emailService.sendPaymentConfirmationEmail(order, payUser.name || 'Customer', payUser.email);
+  }
 
   res.json({
     success: true,
@@ -341,6 +371,16 @@ exports.cancelOrder = asyncHandler(async (req, res) => {
   // Use the model method to cancel
   await order.cancel(reason || 'Cancelled by user', userId, 'User');
 
+  // Send cancellation emails (non-blocking)
+  const cancelUser = await User.findById(userId);
+  if (cancelUser) {
+    emailService.sendOrderStatusEmail(order, cancelUser.name || 'Customer', cancelUser.email, 'cancelled');
+  }
+  const cancelDist = await Distributor.findById(order.distributor);
+  if (cancelDist) {
+    emailService.sendOrderCancelledToDistributor(order, cancelDist);
+  }
+
   res.json({
     success: true,
     message: 'Order cancelled successfully',
@@ -440,6 +480,12 @@ exports.updateOrderStatus = asyncHandler(async (req, res) => {
 
   // Use model method for status update with validation
   await order.updateStatus(status, note, distributorId, 'Distributor');
+
+  // Send status update email to user (non-blocking)
+  const statusUser = await User.findById(order.user);
+  if (statusUser) {
+    emailService.sendOrderStatusEmail(order, statusUser.name || 'Customer', statusUser.email, status);
+  }
 
   res.json({
     success: true,

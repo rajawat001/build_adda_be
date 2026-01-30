@@ -24,6 +24,9 @@ if (missingEnvVars.length > 0) {
 
 const app = express();
 
+// Trust proxy (required for ngrok, Vercel, etc. to get correct client IP for rate limiting)
+app.set('trust proxy', 1);
+
 // Connect to database
 connectDB();
 
@@ -46,6 +49,7 @@ app.use(helmet({
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
+  'http://192.168.1.3:3000',
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
@@ -58,8 +62,8 @@ app.use(cors({
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      // Allow any Vercel deployment URLs
-      if (origin.includes('.vercel.app')) {
+      // Allow Vercel and ngrok URLs
+      if (origin.includes('.vercel.app') || origin.includes('.ngrok-free.app') || origin.includes('.ngrok.io')) {
         callback(null, true);
       } else {
         console.log('Blocked by CORS:', origin);
@@ -95,6 +99,15 @@ app.use('/api/', limiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 
+// Rate limiter for OTP endpoints (3 requests per 15 min per IP)
+const otpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === 'development' ? 50 : 3,
+  message: 'Too many OTP requests, please try again later',
+  skipSuccessfulRequests: false
+});
+app.use('/api/auth/otp', otpLimiter);
+
 // Body parser middleware with size limits
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -125,6 +138,7 @@ if (process.env.NODE_ENV === 'development') {
 
 // API Routes
 app.use('/api/auth', require('./routes/auth.routes'));
+app.use('/api/auth/otp', require('./routes/email-auth.routes'));
 app.use('/api/products', require('./routes/product.routes'));
 app.use('/api/orders', require('./routes/order.routes'));
 app.use('/api/users', require('./routes/user.routes'));

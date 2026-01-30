@@ -27,7 +27,13 @@ const emailTemplateSchema = new mongoose.Schema({
       'order-cancelled',
       'payment-confirmation',
       'low-stock-alert',
-      'new-review'
+      'new-review',
+      'otp-verification',
+      'otp-login',
+      'delivery-price-update',
+      'refund-notification',
+      'new-order-distributor',
+      'order-cancelled-distributor'
     ]
   },
 

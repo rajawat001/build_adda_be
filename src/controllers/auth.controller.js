@@ -1,8 +1,22 @@
 const authService = require('../services/auth.service');
+const emailService = require('../services/email.service');
 const User = require('../models/User');
 const Distributor = require('../models/Distributor');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, NotFoundError, AuthenticationError } = require('../utils/errors');
+
+// Cookie options based on environment
+const getCookieOptions = (req) => {
+  // Use secure cookies when behind HTTPS proxy (ngrok, Vercel) or in production
+  const isSecure = req?.secure || req?.headers['x-forwarded-proto'] === 'https' || process.env.NODE_ENV === 'production';
+  return {
+    httpOnly: true,
+    secure: isSecure,
+    sameSite: isSecure ? 'none' : 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    path: '/'
+  };
+};
 
 // @desc    Register new user or distributor
 // @route   POST /api/auth/register
@@ -52,14 +66,11 @@ const register = asyncHandler(async (req, res) => {
   // Generate token
   const token = authService.generateToken(user._id, role === 'distributor' ? 'distributor' : 'user');
 
-  // Set httpOnly cookie for cross-domain access
-  res.cookie('token', token, {
-    httpOnly: true,
-    secure: true, // Required for sameSite: 'none'
-    sameSite: 'none', // Allow cross-site cookies (different domains)
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    path: '/' // Ensure cookie is accessible across all paths
-  });
+  // Set httpOnly cookie
+  res.cookie('token', token, getCookieOptions(req));
+
+  // Send welcome email (non-blocking)
+  emailService.sendWelcomeEmail(user, role === 'distributor' ? 'distributor' : 'user');
 
   res.status(201).json({
     success: true,
@@ -128,14 +139,8 @@ const login = asyncHandler(async (req, res) => {
   // Generate token with correct role
   const token = authService.generateToken(user._id, userRole);
 
-  // Set httpOnly cookie for cross-domain access
-  res.cookie('token', token, {
-    httpOnly: true,
-    secure: true, // Required for sameSite: 'none'
-    sameSite: 'none', // Allow cross-site cookies (different domains)
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    path: '/' // Ensure cookie is accessible across all paths
-  });
+  // Set httpOnly cookie
+  res.cookie('token', token, getCookieOptions(req));
 
   res.json({
     success: true,
@@ -417,13 +422,11 @@ const deleteAddress = asyncHandler(async (req, res) => {
 // @route   POST /api/auth/logout
 // @access  Private
 const logout = asyncHandler(async (req, res) => {
-  // Clear httpOnly cookie for cross-domain access
+  // Clear httpOnly cookie
   res.cookie('token', '', {
-    httpOnly: true,
-    secure: true, // Required for sameSite: 'none'
-    sameSite: 'none', // Allow cross-site cookies (different domains)
-    expires: new Date(0),
-    path: '/' // Ensure cookie is cleared across all paths
+    ...getCookieOptions(req),
+    maxAge: undefined,
+    expires: new Date(0)
   });
 
   res.json({
