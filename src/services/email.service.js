@@ -1,4 +1,3 @@
-const nodemailer = require('nodemailer');
 const {
   otpTemplate,
   welcomeTemplate,
@@ -15,36 +14,44 @@ const {
   orderCancelledDistributorTemplate
 } = require('../utils/emailTemplates');
 
-// Create Brevo SMTP transporter
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    host: process.env.BREVO_SMTP_HOST || 'smtp-relay.brevo.com',
-    port: parseInt(process.env.BREVO_SMTP_PORT) || 587,
-    secure: false,
-    auth: {
-      user: process.env.BREVO_SMTP_USER,
-      pass: process.env.BREVO_SMTP_PASS
-    }
-  });
-};
-
 /**
- * Send an email via Brevo SMTP
+ * Send an email via Brevo HTTP API (works on Render/Vercel free tier where SMTP port 587 is blocked)
  */
 const sendEmail = async (to, subject, html) => {
   try {
-    const transporter = createTransporter();
+    const apiKey = process.env.BREVO_API_KEY;
+    if (!apiKey) {
+      console.error('BREVO_API_KEY is not set in environment variables');
+      return { success: false, error: 'Email API key not configured' };
+    }
 
-    const mailOptions = {
-      from: `"${process.env.EMAIL_FROM_NAME || 'BuildAdda'}" <${process.env.EMAIL_FROM || 'noreply@buildadda.com'}>`,
-      to,
-      subject,
-      html
-    };
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'api-key': apiKey,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        sender: {
+          name: process.env.EMAIL_FROM_NAME || 'BuildAdda',
+          email: process.env.EMAIL_FROM || 'noreply@buildadda.com'
+        },
+        to: [{ email: to }],
+        subject,
+        htmlContent: html
+      })
+    });
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`Email sent to ${to}: ${info.messageId}`);
-    return { success: true, messageId: info.messageId };
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error(`Brevo API error for ${to}:`, data.message || JSON.stringify(data));
+      return { success: false, error: data.message || 'Brevo API error' };
+    }
+
+    console.log(`Email sent to ${to}: ${data.messageId}`);
+    return { success: true, messageId: data.messageId };
   } catch (error) {
     console.error(`Failed to send email to ${to}:`, error.message);
     // Don't throw - email failures should not break the main flow
