@@ -715,4 +715,252 @@ exports.updateProfile = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Get distributor analytics data
+// @route   GET /api/distributor/analytics
+// @access  Private (Distributor only)
+exports.getDistributorAnalytics = asyncHandler(async (req, res) => {
+  const distributorId = req.user._id;
+  const { startDate, endDate } = req.query;
+
+  if (!startDate || !endDate) {
+    throw new ValidationError('startDate and endDate query parameters are required');
+  }
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    throw new ValidationError('Invalid date format. Use ISO date strings.');
+  }
+
+  const periodLength = end.getTime() - start.getTime();
+  const prevStart = new Date(start.getTime() - periodLength);
+  const prevEnd = new Date(start);
+
+  const baseMatch = { distributor: distributorId };
+  const currentDateMatch = { createdAt: { $gte: start, $lte: end } };
+  const prevDateMatch = { createdAt: { $gte: prevStart, $lt: prevEnd } };
+
+  // Determine grouping interval: daily if <= 90 days, monthly otherwise
+  const daysDiff = Math.ceil(periodLength / (1000 * 60 * 60 * 24));
+  const groupByMonth = daysDiff > 90;
+
+  const dateGroupExpression = groupByMonth
+    ? { $dateToString: { format: '%Y-%m', date: '$createdAt' } }
+    : { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } };
+
+  const labelFormat = groupByMonth
+    ? { $dateToString: { format: '%b %Y', date: '$createdAt' } }
+    : { $dateToString: { format: '%b %d', date: '$createdAt' } };
+
+  // Run all aggregations in parallel
+  const [
+    currentRevenue,
+    prevRevenue,
+    revenueTrend,
+    currentOrderCount,
+    prevOrderCount,
+    ordersByStatus,
+    totalProducts,
+    topSelling,
+    byCategory,
+    totalCustomers,
+    newCustomers,
+  ] = await Promise.all([
+    // 1. Current period revenue (delivered orders only)
+    Order.aggregate([
+      { $match: { ...baseMatch, ...currentDateMatch, orderStatus: 'delivered' } },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } },
+    ]),
+
+    // 2. Previous period revenue (delivered orders only)
+    Order.aggregate([
+      { $match: { ...baseMatch, ...prevDateMatch, orderStatus: 'delivered' } },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } },
+    ]),
+
+    // 3. Revenue trend grouped by day/month (delivered orders)
+    Order.aggregate([
+      { $match: { ...baseMatch, ...currentDateMatch, orderStatus: 'delivered' } },
+      {
+        $group: {
+          _id: dateGroupExpression,
+          total: { $sum: '$totalAmount' },
+          label: { $first: labelFormat },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]),
+
+    // 4. Current period order count
+    Order.countDocuments({ ...baseMatch, ...currentDateMatch }),
+
+    // 5. Previous period order count
+    Order.countDocuments({ ...baseMatch, ...prevDateMatch }),
+
+    // 6. Orders by status in current period
+    Order.aggregate([
+      { $match: { ...baseMatch, ...currentDateMatch } },
+      { $group: { _id: '$orderStatus', count: { $sum: 1 } } },
+    ]),
+
+    // 7. Total products for this distributor
+    Product.countDocuments({ distributor: distributorId }),
+
+    // 8. Top selling products (from order items in current period)
+    Order.aggregate([
+      { $match: { ...baseMatch, ...currentDateMatch, orderStatus: { $ne: 'cancelled' } } },
+      { $unwind: '$items' },
+      {
+        $group: {
+          _id: '$items.product',
+          sales: { $sum: '$items.quantity' },
+          revenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
+        },
+      },
+      { $sort: { revenue: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: 'products',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'productInfo',
+        },
+      },
+      { $unwind: { path: '$productInfo', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          id: '$_id',
+          name: { $ifNull: ['$productInfo.name', 'Deleted Product'] },
+          sales: 1,
+          revenue: 1,
+        },
+      },
+    ]),
+
+    // 9. Products by category (from order items, joined with product for category)
+    Order.aggregate([
+      { $match: { ...baseMatch, ...currentDateMatch, orderStatus: { $ne: 'cancelled' } } },
+      { $unwind: '$items' },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'items.product',
+          foreignField: '_id',
+          as: 'productInfo',
+        },
+      },
+      { $unwind: { path: '$productInfo', preserveNullAndEmptyArrays: true } },
+      {
+        $group: {
+          _id: { $ifNull: ['$productInfo.category', 'Other'] },
+          count: { $addToSet: '$items.product' },
+          revenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
+        },
+      },
+      {
+        $project: {
+          category: '$_id',
+          count: { $size: '$count' },
+          revenue: 1,
+          _id: 0,
+        },
+      },
+      { $sort: { revenue: -1 } },
+    ]),
+
+    // 10. Total distinct customers in current period
+    Order.aggregate([
+      { $match: { ...baseMatch, ...currentDateMatch } },
+      { $group: { _id: '$user' } },
+      { $count: 'total' },
+    ]),
+
+    // 11. New customers: users whose first order from this distributor is within the date range
+    Order.aggregate([
+      { $match: { distributor: distributorId } },
+      { $sort: { createdAt: 1 } },
+      {
+        $group: {
+          _id: '$user',
+          firstOrderDate: { $first: '$createdAt' },
+        },
+      },
+      {
+        $match: {
+          firstOrderDate: { $gte: start, $lte: end },
+        },
+      },
+      { $count: 'total' },
+    ]),
+  ]);
+
+  // Extract values with safe defaults
+  const currentRevenueTotal = currentRevenue[0]?.total || 0;
+  const prevRevenueTotal = prevRevenue[0]?.total || 0;
+  const revenueGrowth = prevRevenueTotal > 0
+    ? ((currentRevenueTotal - prevRevenueTotal) / prevRevenueTotal) * 100
+    : currentRevenueTotal > 0 ? 100 : 0;
+
+  const currentOrders = currentOrderCount;
+  const prevOrders = prevOrderCount;
+  const ordersGrowth = prevOrders > 0
+    ? ((currentOrders - prevOrders) / prevOrders) * 100
+    : currentOrders > 0 ? 100 : 0;
+
+  // Build orders by status with percentages
+  const totalOrdersInPeriod = ordersByStatus.reduce((sum, s) => sum + s.count, 0);
+  const statusMap = {
+    pending: 'Pending',
+    confirmed: 'Confirmed',
+    processing: 'Processing',
+    shipped: 'Shipped',
+    delivered: 'Completed',
+    cancelled: 'Cancelled',
+  };
+  const byStatusFormatted = ordersByStatus.map(s => ({
+    status: statusMap[s._id] || s._id,
+    count: s.count,
+    percentage: totalOrdersInPeriod > 0
+      ? Math.round((s.count / totalOrdersInPeriod) * 1000) / 10
+      : 0,
+  }));
+
+  const customerTotal = totalCustomers[0]?.total || 0;
+  const newCustomerCount = newCustomers[0]?.total || 0;
+
+  res.json({
+    success: true,
+    analytics: {
+      revenue: {
+        total: currentRevenueTotal,
+        growth: Math.round(revenueGrowth * 10) / 10,
+        trend: revenueTrend.map(r => r.total),
+        labels: revenueTrend.map(r => r.label),
+      },
+      orders: {
+        total: currentOrders,
+        growth: Math.round(ordersGrowth * 10) / 10,
+        byStatus: byStatusFormatted,
+      },
+      products: {
+        total: totalProducts,
+        topSelling: topSelling.map(p => ({
+          id: p.id,
+          name: p.name,
+          sales: p.sales,
+          revenue: p.revenue,
+        })),
+        byCategory: byCategory,
+      },
+      customers: {
+        total: customerTotal,
+        new: newCustomerCount,
+        returning: Math.max(0, customerTotal - newCustomerCount),
+      },
+    },
+  });
+});
+
 module.exports = exports;

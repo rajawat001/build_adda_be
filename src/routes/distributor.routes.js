@@ -12,6 +12,9 @@ router.use(roleMiddleware.authorize('distributor'));
 // Dashboard stats
 router.get('/stats', distributorController.getDistributorStats);
 
+// Analytics
+router.get('/analytics', distributorController.getDistributorAnalytics);
+
 // Product management
 router.get('/products', distributorController.getDistributorProducts);
 router.post('/products', upload.single('image'), distributorController.addProduct);
