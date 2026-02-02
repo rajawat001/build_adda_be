@@ -14,8 +14,8 @@ router.get('/:orderId', orderController.getOrderById);
 router.put('/:orderId/cancel', orderController.cancelOrder);
 
 // Payment routes
-router.post('/razorpay/create', orderController.createRazorpayOrder);
-router.post('/razorpay/verify', orderController.verifyPayment);
+router.post('/phonepe/initiate', orderController.initiatePhonepePayment);
+router.post('/phonepe/status', orderController.checkPaymentStatus);
 router.post('/cod/confirm', orderController.confirmCOD);
 
 // Coupon route

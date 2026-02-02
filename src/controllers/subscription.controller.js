@@ -1,10 +1,9 @@
 const Subscription = require('../models/Subscription');
 const SubscriptionPlan = require('../models/SubscriptionPlan');
 const Coupon = require('../models/Coupon');
-const Settings = require('../models/Settings');
 const Distributor = require('../models/Distributor');
-const Razorpay = require('razorpay');
-const crypto = require('crypto');
+const paymentService = require('../services/payment.service');
+const { redirectBaseUrl } = require('../config/phonepe');
 
 // Helper function to approve distributor after successful subscription
 const approveDistributorAfterSubscription = async (distributorId) => {
@@ -178,7 +177,7 @@ exports.applyCoupon = async (req, res) => {
   }
 };
 
-// Create Razorpay order
+// Create PhonePe payment order
 exports.createOrder = async (req, res) => {
   try {
     const { planId, couponCode } = req.body;
@@ -260,38 +259,11 @@ exports.createOrder = async (req, res) => {
       });
     }
 
-    // Get Razorpay settings
-    const settings = await Settings.findOne();
-    if (!settings || !settings.razorpayKeyId || !settings.razorpayKeySecret) {
-      return res.status(500).json({
-        success: false,
-        message: 'Razorpay is not configured. Please contact admin.'
-      });
-    }
-
-    // Initialize Razorpay
-    const razorpay = new Razorpay({
-      key_id: settings.razorpayKeyId,
-      key_secret: settings.razorpayKeySecret
-    });
-
-    // Create Razorpay order
-    const options = {
-      amount: Math.round(amount * 100), // Amount in paise
-      currency: 'INR',
-      receipt: `sub_${Date.now()}`,
-      notes: {
-        planId: plan._id.toString(),
-        distributorId: req.user._id.toString(),
-        couponCode: couponCode || ''
-      }
-    };
-
-    const razorpayOrder = await razorpay.orders.create(options);
-
     // Create pending subscription
     const endDate = new Date();
     endDate.setDate(endDate.getDate() + plan.durationInDays);
+
+    const merchantTransactionId = `SUB_${req.user._id}_${Date.now()}`;
 
     const subscription = new Subscription({
       distributor: req.user._id,
@@ -304,16 +276,28 @@ exports.createOrder = async (req, res) => {
       couponApplied: coupon ? coupon._id : null,
       discount,
       finalAmount: amount,
-      razorpayOrderId: razorpayOrder.id
+      phonepeMerchantTransactionId: merchantTransactionId
     });
 
     await subscription.save();
 
+    // Initiate PhonePe payment
+    const phonepeRedirectUrl = `${redirectBaseUrl}/payment/status?merchantTransactionId=${merchantTransactionId}&type=subscription&subscriptionId=${subscription._id}`;
+
+    const phonePeResponse = await paymentService.initiatePayment({
+      merchantTransactionId,
+      amount,
+      userId: req.user._id,
+      redirectUrl: phonepeRedirectUrl
+    });
+
+    const paymentUrl = phonePeResponse.data?.instrumentResponse?.redirectInfo?.url;
+
     res.status(200).json({
       success: true,
-      order: razorpayOrder,
+      paymentUrl,
       subscription: subscription._id,
-      razorpayKeyId: settings.razorpayKeyId
+      merchantTransactionId
     });
   } catch (error) {
     console.error('Error creating order:', error);
@@ -325,40 +309,19 @@ exports.createOrder = async (req, res) => {
   }
 };
 
-// Verify Razorpay payment
+// Check PhonePe payment status for subscription
 exports.verifyPayment = async (req, res) => {
   try {
-    const {
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-      subscriptionId
-    } = req.body;
+    const { merchantTransactionId, subscriptionId } = req.body;
 
-    // Get Razorpay settings
-    const settings = await Settings.findOne();
-    if (!settings || !settings.razorpayKeySecret) {
-      return res.status(500).json({
-        success: false,
-        message: 'Razorpay is not configured'
-      });
-    }
-
-    // Verify signature
-    const body = razorpay_order_id + '|' + razorpay_payment_id;
-    const expectedSignature = crypto
-      .createHmac('sha256', settings.razorpayKeySecret)
-      .update(body.toString())
-      .digest('hex');
-
-    if (expectedSignature !== razorpay_signature) {
+    if (!merchantTransactionId || !subscriptionId) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid payment signature'
+        message: 'merchantTransactionId and subscriptionId are required'
       });
     }
 
-    // Update subscription
+    // Find subscription
     const subscription = await Subscription.findById(subscriptionId);
     if (!subscription) {
       return res.status(404).json({
@@ -367,28 +330,65 @@ exports.verifyPayment = async (req, res) => {
       });
     }
 
-    subscription.status = 'active';
-    subscription.paymentStatus = 'paid';
-    subscription.razorpayPaymentId = razorpay_payment_id;
-    subscription.razorpaySignature = razorpay_signature;
-    await subscription.save();
-
-    // Increment coupon usage if applicable
-    if (subscription.couponApplied) {
-      await Coupon.findByIdAndUpdate(
-        subscription.couponApplied,
-        { $inc: { usedCount: 1 } }
-      );
+    // If already paid (e.g. by webhook), return success immediately
+    if (subscription.paymentStatus === 'paid') {
+      await subscription.populate('plan');
+      return res.status(200).json({
+        success: true,
+        message: 'Payment already verified',
+        paymentStatus: 'paid',
+        subscription
+      });
     }
 
-    // Auto-approve distributor after successful subscription
-    await approveDistributorAfterSubscription(subscription.distributor);
+    // Check status with PhonePe
+    const statusResponse = await paymentService.checkPaymentStatus(merchantTransactionId);
+    const code = statusResponse.code;
 
-    await subscription.populate('plan');
+    if (code === 'PAYMENT_SUCCESS') {
+      subscription.phonepeTransactionId = statusResponse.data?.transactionId || '';
+      subscription.status = 'active';
+      subscription.paymentStatus = 'paid';
+      await subscription.save();
 
-    res.status(200).json({
-      success: true,
-      message: 'Payment verified successfully',
+      // Increment coupon usage if applicable
+      if (subscription.couponApplied) {
+        await Coupon.findByIdAndUpdate(
+          subscription.couponApplied,
+          { $inc: { usedCount: 1 } }
+        );
+      }
+
+      // Auto-approve distributor after successful subscription
+      await approveDistributorAfterSubscription(subscription.distributor);
+
+      await subscription.populate('plan');
+
+      return res.status(200).json({
+        success: true,
+        message: 'Payment verified successfully',
+        paymentStatus: 'paid',
+        subscription
+      });
+    }
+
+    if (code === 'PAYMENT_PENDING') {
+      return res.status(200).json({
+        success: true,
+        message: 'Payment is still pending',
+        paymentStatus: 'pending',
+        subscription
+      });
+    }
+
+    // Payment failed
+    subscription.paymentStatus = 'failed';
+    await subscription.save();
+
+    return res.status(200).json({
+      success: false,
+      message: 'Payment failed',
+      paymentStatus: 'failed',
       subscription
     });
   } catch (error) {

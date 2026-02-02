@@ -35,11 +35,11 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://checkout.razorpay.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "https://api.razorpay.com"],
-      frameSrc: ["'self'", "https://api.razorpay.com"],
+      connectSrc: ["'self'"],
+      frameSrc: ["'self'"],
     }
   },
   crossOriginEmbedderPolicy: false
@@ -154,6 +154,7 @@ app.use('/api/admin/analytics', require('./routes/analytics.routes'));
 app.use('/api/distributor', require('./routes/distributor.routes'));
 app.use('/api/notifications', require('./routes/notification.routes'));
 app.use('/api/subscriptions', require('./routes/subscription.routes'));
+app.use('/api/payments', require('./routes/webhook.routes'));
 
 // Health check endpoint
 app.get('/health', (req, res) => {

@@ -21,8 +21,10 @@ exports.getSettings = async (req, res) => {
         timezone: 'Asia/Kolkata',
 
         // Payment
-        razorpayKeyId: '',
-        razorpayKeySecret: '',
+        phonepeMerchantId: '',
+        phonepeSaltKey: '',
+        phonepeSaltIndex: '1',
+        phonepeEnv: 'sandbox',
         codEnabled: true,
         minOrderAmount: 500,
 
@@ -149,8 +151,10 @@ exports.resetSettings = async (req, res) => {
       timezone: 'Asia/Kolkata',
 
       // Payment
-      razorpayKeyId: '',
-      razorpayKeySecret: '',
+      phonepeMerchantId: '',
+      phonepeSaltKey: '',
+      phonepeSaltIndex: '1',
+      phonepeEnv: 'sandbox',
       codEnabled: true,
       minOrderAmount: 500,
 

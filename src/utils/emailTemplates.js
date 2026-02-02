@@ -539,7 +539,7 @@ const paymentConfirmationTemplate = (order, userName) => {
           </tr>
           <tr>
             <td style="padding:4px 0;color:#155724;font-size:13px;">Payment ID</td>
-            <td style="padding:4px 0;color:#155724;font-size:14px;font-weight:600;text-align:right;">${order.razorpayPaymentId || 'N/A'}</td>
+            <td style="padding:4px 0;color:#155724;font-size:14px;font-weight:600;text-align:right;">${order.phonepeTransactionId || 'N/A'}</td>
           </tr>
         </table>
       </div>

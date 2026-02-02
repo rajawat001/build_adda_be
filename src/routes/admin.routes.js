@@ -55,6 +55,7 @@ router.delete('/coupons/:couponId', adminController.deleteCoupon);
 router.get('/orders/stats', adminController.getOrderStats);
 router.get('/orders', adminController.getAllOrders);
 router.put('/orders/:orderId', adminController.updateOrderStatus);
+router.post('/orders/:orderId/refund', adminController.processRefund);
 
 // Transaction reports
 router.get('/transactions', adminController.getTransactionReports);

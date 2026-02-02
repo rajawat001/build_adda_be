@@ -24,13 +24,10 @@ const transactionSchema = new mongoose.Schema({
     enum: ['success', 'failed', 'pending'],
     default: 'pending'
   },
-  razorpayOrderId: {
+  phonepeMerchantTransactionId: {
     type: String
   },
-  razorpayPaymentId: {
-    type: String
-  },
-  razorpaySignature: {
+  phonepeTransactionId: {
     type: String
   }
 }, {

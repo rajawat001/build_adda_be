@@ -48,18 +48,16 @@ const subscriptionSchema = new mongoose.Schema({
     required: true,
     min: 0
   },
-  razorpayOrderId: {
-    type: String
+  phonepeMerchantTransactionId: {
+    type: String,
+    index: true
   },
-  razorpayPaymentId: {
-    type: String
-  },
-  razorpaySignature: {
+  phonepeTransactionId: {
     type: String
   },
   paymentMethod: {
     type: String,
-    default: 'razorpay'
+    default: 'phonepe'
   },
   autoRenew: {
     type: Boolean,

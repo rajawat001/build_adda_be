@@ -41,13 +41,22 @@ const settingsSchema = new mongoose.Schema({
   },
 
   // Payment Settings
-  razorpayKeyId: {
+  phonepeMerchantId: {
     type: String,
     default: ''
   },
-  razorpayKeySecret: {
+  phonepeSaltKey: {
     type: String,
     default: ''
+  },
+  phonepeSaltIndex: {
+    type: String,
+    default: '1'
+  },
+  phonepeEnv: {
+    type: String,
+    enum: ['sandbox', 'production'],
+    default: 'sandbox'
   },
   codEnabled: {
     type: Boolean,

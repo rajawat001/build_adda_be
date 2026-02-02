@@ -152,8 +152,8 @@ class OrderService {
         order: orderId,
         user: order.user,
         amount: order.totalAmount,
-        paymentMethod: paymentData.paymentMethod || 'razorpay',
-        transactionId: paymentData.razorpayPaymentId,
+        paymentMethod: paymentData.paymentMethod || 'phonepe',
+        transactionId: paymentData.phonepeTransactionId,
         status: 'success'
       });
 

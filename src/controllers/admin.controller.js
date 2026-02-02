@@ -6,6 +6,8 @@ const Transaction = require('../models/Transaction');
 const Coupon = require('../models/Coupon');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, NotFoundError, ConflictError } = require('../utils/errors');
+const paymentService = require('../services/payment.service');
+const emailService = require('../services/email.service');
 
 // @desc    Get admin dashboard statistics
 // @route   GET /api/admin/stats
@@ -698,6 +700,76 @@ exports.updateOrderStatus = asyncHandler(async (req, res) => {
     success: true,
     message: 'Order status updated successfully',
     order
+  });
+});
+
+// @desc    Process refund for an order (PhonePe)
+// @route   POST /api/admin/orders/:orderId/refund
+// @access  Private (Admin only)
+exports.processRefund = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const { amount } = req.body; // Optional partial refund amount
+
+  const order = await Order.findById(orderId).populate('user', 'name email');
+
+  if (!order) {
+    throw new NotFoundError('Order not found');
+  }
+
+  if (order.paymentStatus === 'refunded') {
+    throw new ValidationError('Order has already been refunded');
+  }
+
+  if (order.paymentStatus !== 'paid') {
+    throw new ValidationError('Can only refund paid orders');
+  }
+
+  if (order.paymentMethod !== 'Online') {
+    throw new ValidationError('Can only process online payment refunds. COD orders do not require refund processing.');
+  }
+
+  if (!order.phonepeMerchantTransactionId) {
+    throw new ValidationError('No PhonePe transaction found for this order');
+  }
+
+  const refundAmount = amount || order.totalAmount;
+
+  if (refundAmount <= 0 || refundAmount > order.totalAmount) {
+    throw new ValidationError(`Refund amount must be between 1 and ${order.totalAmount}`);
+  }
+
+  // Create refund via PhonePe
+  const refundTransactionId = `REFUND_${order._id}_${Date.now()}`;
+
+  const refundResponse = await paymentService.createRefund({
+    originalTransactionId: order.phonepeMerchantTransactionId,
+    merchantTransactionId: refundTransactionId,
+    amount: refundAmount
+  });
+
+  // Update order
+  order.refundAmount = refundAmount;
+  order.refundStatus = 'pending';
+  order.refundedAt = new Date();
+
+  // If PhonePe immediately confirms refund
+  if (refundResponse.code === 'PAYMENT_SUCCESS') {
+    order.refundStatus = 'processed';
+    order.paymentStatus = 'refunded';
+  }
+
+  await order.save();
+
+  // Send refund notification email
+  if (order.user && order.user.email) {
+    emailService.sendRefundNotificationEmail(order, order.user.name || 'Customer', order.user.email);
+  }
+
+  res.json({
+    success: true,
+    message: `Refund of ₹${refundAmount} initiated successfully`,
+    order,
+    refundTransactionId
   });
 });
 

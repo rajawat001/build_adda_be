@@ -135,10 +135,13 @@ const orderSchema = new mongoose.Schema({
     index: true
   },
 
-  // Razorpay details
-  razorpayOrderId: String,
-  razorpayPaymentId: String,
-  razorpaySignature: String,
+  // PhonePe payment details
+  phonepeMerchantTransactionId: {
+    type: String,
+    index: true
+  },
+  phonepeTransactionId: String,
+  phonepePaymentInstrument: String,
 
   // Order tracking
   orderStatus: {

@@ -132,10 +132,10 @@ exports.createOrder = asyncHandler(async (req, res) => {
   });
 });
 
-// @desc    Create Razorpay order for online payment
-// @route   POST /api/orders/razorpay
+// @desc    Initiate PhonePe payment for online order
+// @route   POST /api/orders/phonepe/initiate
 // @access  Private
-exports.createRazorpayOrder = asyncHandler(async (req, res) => {
+exports.initiatePhonepePayment = asyncHandler(async (req, res) => {
   const { orderId } = req.body;
   const userId = req.user._id;
 
@@ -159,40 +159,40 @@ exports.createRazorpayOrder = asyncHandler(async (req, res) => {
     throw new ValidationError('Order payment method is not Online');
   }
 
-  const razorpayOrder = await paymentService.createRazorpayOrder(
-    order._id.toString(),
-    order.totalAmount
-  );
+  const { redirectBaseUrl } = require('../config/phonepe');
+  const merchantTransactionId = `ORDER_${order._id}_${Date.now()}`;
+  const redirectUrl = `${redirectBaseUrl}/payment/status?merchantTransactionId=${merchantTransactionId}&type=order&orderId=${order._id}`;
 
-  // Update order with Razorpay order ID
-  order.razorpayOrderId = razorpayOrder.id;
+  const phonePeResponse = await paymentService.initiatePayment({
+    merchantTransactionId,
+    amount: order.totalAmount,
+    userId,
+    redirectUrl
+  });
+
+  // Store merchantTransactionId on order
+  order.phonepeMerchantTransactionId = merchantTransactionId;
   await order.save();
+
+  const paymentUrl = phonePeResponse.data?.instrumentResponse?.redirectInfo?.url;
 
   res.json({
     success: true,
-    razorpayOrder,
-    order: {
-      _id: order._id,
-      totalAmount: order.totalAmount,
-      razorpayOrderId: razorpayOrder.id
-    }
+    paymentUrl,
+    merchantTransactionId,
+    orderId: order._id
   });
 });
 
-// @desc    Verify Razorpay payment
-// @route   POST /api/orders/razorpay/verify
+// @desc    Check PhonePe payment status
+// @route   POST /api/orders/phonepe/status
 // @access  Private
-exports.verifyPayment = asyncHandler(async (req, res) => {
-  const {
-    orderId,
-    razorpayOrderId,
-    razorpayPaymentId,
-    razorpaySignature
-  } = req.body;
+exports.checkPaymentStatus = asyncHandler(async (req, res) => {
+  const { merchantTransactionId, orderId } = req.body;
   const userId = req.user._id;
 
-  if (!orderId || !razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
-    throw new ValidationError('All payment verification fields are required');
+  if (!merchantTransactionId || !orderId) {
+    throw new ValidationError('merchantTransactionId and orderId are required');
   }
 
   const order = await Order.findById(orderId);
@@ -206,37 +206,58 @@ exports.verifyPayment = asyncHandler(async (req, res) => {
     throw new AuthorizationError('You are not authorized to access this order');
   }
 
-  // Verify signature
-  const isValid = paymentService.verifyRazorpaySignature(
-    razorpayOrderId,
-    razorpayPaymentId,
-    razorpaySignature
-  );
+  // If already paid (e.g. by webhook), return success immediately
+  if (order.paymentStatus === 'paid') {
+    return res.json({
+      success: true,
+      message: 'Payment already verified',
+      paymentStatus: 'paid',
+      order
+    });
+  }
 
-  if (!isValid) {
-    // Mark payment as failed
-    order.paymentStatus = 'failed';
+  // Check status with PhonePe
+  const statusResponse = await paymentService.checkPaymentStatus(merchantTransactionId);
+  const code = statusResponse.code;
+
+  if (code === 'PAYMENT_SUCCESS') {
+    order.phonepeTransactionId = statusResponse.data?.transactionId || '';
+    order.phonepePaymentInstrument = statusResponse.data?.paymentInstrument?.type || '';
+    order.paymentStatus = 'paid';
+    order.orderStatus = 'confirmed';
     await order.save();
 
-    throw new ValidationError('Payment verification failed. Please try again.');
+    // Send payment confirmation email (non-blocking)
+    const payUser = await User.findById(userId);
+    if (payUser) {
+      emailService.sendPaymentConfirmationEmail(order, payUser.name || 'Customer', payUser.email);
+    }
+
+    return res.json({
+      success: true,
+      message: 'Payment verified successfully',
+      paymentStatus: 'paid',
+      order
+    });
   }
 
-  // Update order with payment details
-  order.razorpayPaymentId = razorpayPaymentId;
-  order.razorpaySignature = razorpaySignature;
-  order.paymentStatus = 'paid';
-  order.orderStatus = 'confirmed';
+  if (code === 'PAYMENT_PENDING') {
+    return res.json({
+      success: true,
+      message: 'Payment is still pending',
+      paymentStatus: 'pending',
+      order
+    });
+  }
+
+  // Payment failed
+  order.paymentStatus = 'failed';
   await order.save();
 
-  // Send payment confirmation email (non-blocking)
-  const payUser = await User.findById(userId);
-  if (payUser) {
-    emailService.sendPaymentConfirmationEmail(order, payUser.name || 'Customer', payUser.email);
-  }
-
-  res.json({
-    success: true,
-    message: 'Payment verified successfully',
+  return res.json({
+    success: false,
+    message: 'Payment failed',
+    paymentStatus: 'failed',
     order
   });
 });
@@ -371,6 +392,27 @@ exports.cancelOrder = asyncHandler(async (req, res) => {
   // Use the model method to cancel
   await order.cancel(reason || 'Cancelled by user', userId, 'User');
 
+  // Auto-refund if order was paid online via PhonePe
+  let refundInitiated = false;
+  if (order.paymentMethod === 'Online' && order.paymentStatus === 'paid' && order.phonepeMerchantTransactionId) {
+    try {
+      const refundTransactionId = `REFUND_${order._id}_${Date.now()}`;
+      await paymentService.createRefund({
+        originalTransactionId: order.phonepeMerchantTransactionId,
+        merchantTransactionId: refundTransactionId,
+        amount: order.totalAmount
+      });
+      order.refundAmount = order.totalAmount;
+      order.refundStatus = 'pending';
+      order.refundedAt = new Date();
+      await order.save();
+      refundInitiated = true;
+    } catch (refundError) {
+      console.error('Auto-refund failed for order', order._id, refundError.message);
+      // Cancellation still proceeds — admin can process refund manually
+    }
+  }
+
   // Send cancellation emails (non-blocking)
   const cancelUser = await User.findById(userId);
   if (cancelUser) {
@@ -383,7 +425,10 @@ exports.cancelOrder = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    message: 'Order cancelled successfully',
+    message: refundInitiated
+      ? 'Order cancelled and refund initiated successfully'
+      : 'Order cancelled successfully',
+    refundInitiated,
     order
   });
 });
