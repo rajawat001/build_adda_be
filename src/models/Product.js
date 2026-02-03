@@ -35,6 +35,14 @@ const productSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  images: {
+    type: [String],
+    default: [],
+    validate: {
+      validator: function(v) { return v.length <= 10; },
+      message: 'Maximum 10 images allowed'
+    }
+  },
   stock: {
     type: Number,
     required: true,
@@ -46,6 +54,29 @@ const productSchema = new mongoose.Schema({
     required: true,
     default: 'unit'
   },
+  unitType: {
+    type: String,
+    enum: ['kg', 'g', 'L', 'mL', 'ton', 'piece', 'bag', 'box', 'sqft', 'sqm', 'bundle', 'set', 'meter', 'feet', 'unit'],
+    default: 'unit'
+  },
+  brand: { type: String, trim: true, default: '' },
+  manufacturer: { type: String, trim: true, default: '' },
+  origin: { type: String, trim: true, default: '' },
+  material: { type: String, trim: true, default: '' },
+  color: { type: String, trim: true, default: '' },
+  weight: { type: String, trim: true, default: '' },
+  warranty: { type: String, trim: true, default: '' },
+  hsnCode: { type: String, trim: true, default: '' },
+  dimensions: {
+    length: { type: String, default: '' },
+    width: { type: String, default: '' },
+    height: { type: String, default: '' },
+    dimensionUnit: { type: String, enum: ['mm', 'cm', 'inch', 'feet', 'm', ''], default: '' }
+  },
+  specifications: [{
+    key: { type: String, required: true },
+    value: { type: String, required: true }
+  }],
   distributor: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Distributor',
@@ -90,5 +121,7 @@ const productSchema = new mongoose.Schema({
 productSchema.index({ category: 1 });
 productSchema.index({ distributor: 1 });
 productSchema.index({ name: 'text', description: 'text' });
+productSchema.index({ brand: 1 });
+productSchema.index({ manufacturer: 1 });
 
 module.exports = mongoose.model('Product', productSchema);

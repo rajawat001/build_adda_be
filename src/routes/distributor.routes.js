@@ -17,8 +17,8 @@ router.get('/analytics', distributorController.getDistributorAnalytics);
 
 // Product management
 router.get('/products', distributorController.getDistributorProducts);
-router.post('/products', upload.single('image'), distributorController.addProduct);
-router.put('/products/:productId', upload.single('image'), distributorController.updateProduct);
+router.post('/products', upload.array('images', 10), distributorController.addProduct);
+router.put('/products/:productId', upload.array('images', 10), distributorController.updateProduct);
 router.delete('/products/:productId', distributorController.deleteProduct);
 
 // Order management

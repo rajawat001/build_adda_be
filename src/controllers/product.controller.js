@@ -47,7 +47,9 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
     filters.$or = [
       { name: { $regex: searchTerm, $options: 'i' } },
       { description: { $regex: searchTerm, $options: 'i' } },
-      { category: { $regex: searchTerm, $options: 'i' } }
+      { category: { $regex: searchTerm, $options: 'i' } },
+      { brand: { $regex: searchTerm, $options: 'i' } },
+      { manufacturer: { $regex: searchTerm, $options: 'i' } }
     ];
   }
 

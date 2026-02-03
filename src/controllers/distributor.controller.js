@@ -55,7 +55,10 @@ exports.getDistributorProducts = asyncHandler(async (req, res) => {
 exports.addProduct = asyncHandler(async (req, res) => {
   // FIX: Use _id consistently
   const distributorId = req.user._id;
-  const { name, description, price, realPrice, category, stock, unit, minQuantity, maxQuantity, acceptedPaymentMethods } = req.body;
+  const {
+    name, description, price, realPrice, category, stock, unit, minQuantity, maxQuantity, acceptedPaymentMethods,
+    unitType, brand, manufacturer, origin, material, color, weight, warranty, hsnCode, dimensions, specifications
+  } = req.body;
 
   // Validate required fields
   if (!name || !name.trim()) {
@@ -121,13 +124,32 @@ exports.addProduct = asyncHandler(async (req, res) => {
     }
   }
 
-  let imageUrl = '';
-
-  // Upload image to Cloudinary if provided
-  if (req.file) {
+  // Parse dimensions and specifications from JSON strings (FormData sends strings)
+  let parsedDimensions = undefined;
+  if (dimensions) {
     try {
-      const result = await uploadToCloudinary(req.file.buffer);
-      imageUrl = result.secure_url;
+      parsedDimensions = typeof dimensions === 'string' ? JSON.parse(dimensions) : dimensions;
+    } catch (e) {
+      throw new ValidationError('Invalid dimensions format');
+    }
+  }
+
+  let parsedSpecifications = undefined;
+  if (specifications) {
+    try {
+      parsedSpecifications = typeof specifications === 'string' ? JSON.parse(specifications) : specifications;
+    } catch (e) {
+      throw new ValidationError('Invalid specifications format');
+    }
+  }
+
+  // Upload images to Cloudinary if provided
+  let imageUrls = [];
+  if (req.files && req.files.length > 0) {
+    try {
+      const uploadPromises = req.files.map(file => uploadToCloudinary(file.buffer));
+      const results = await Promise.all(uploadPromises);
+      imageUrls = results.map(result => result.secure_url);
     } catch (error) {
       throw new ValidationError('Image upload failed. Please try again.');
     }
@@ -141,16 +163,34 @@ exports.addProduct = asyncHandler(async (req, res) => {
     category,
     stock: parseInt(stock),
     unit: unit || 'unit',
-    image: imageUrl,
+    unitType: unitType || 'unit',
+    image: imageUrls.length > 0 ? imageUrls[0] : '',
+    images: imageUrls,
     distributor: distributorId,
     minQuantity: minQuantity !== undefined ? parseInt(minQuantity) : 1,
     maxQuantity: maxQuantity !== undefined && maxQuantity !== null ? parseInt(maxQuantity) : null,
     acceptedPaymentMethods: parsedPaymentMethods || ['COD', 'Online'],
-    isActive: true
+    isActive: true,
+    brand: brand ? brand.trim() : '',
+    manufacturer: manufacturer ? manufacturer.trim() : '',
+    origin: origin ? origin.trim() : '',
+    material: material ? material.trim() : '',
+    color: color ? color.trim() : '',
+    weight: weight ? weight.trim() : '',
+    warranty: warranty ? warranty.trim() : '',
+    hsnCode: hsnCode ? hsnCode.trim() : '',
   };
 
   if (realPriceNum !== null) {
     productData.realPrice = realPriceNum;
+  }
+
+  if (parsedDimensions) {
+    productData.dimensions = parsedDimensions;
+  }
+
+  if (parsedSpecifications) {
+    productData.specifications = parsedSpecifications;
   }
 
   const product = await Product.create(productData);
@@ -169,7 +209,10 @@ exports.updateProduct = asyncHandler(async (req, res) => {
   const { productId } = req.params;
   // FIX: Use _id consistently
   const distributorId = req.user._id;
-  const { name, description, price, realPrice, category, stock, unit, isActive, minQuantity, maxQuantity, acceptedPaymentMethods } = req.body;
+  const {
+    name, description, price, realPrice, category, stock, unit, isActive, minQuantity, maxQuantity, acceptedPaymentMethods,
+    unitType, brand, manufacturer, origin, material, color, weight, warranty, hsnCode, dimensions, specifications, existingImages
+  } = req.body;
 
   // Check if product belongs to distributor
   const product = await Product.findOne({
@@ -291,13 +334,61 @@ exports.updateProduct = asyncHandler(async (req, res) => {
     product.acceptedPaymentMethods = parsedPaymentMethods;
   }
 
-  // Upload new image if provided
-  if (req.file) {
+  // Handle new detail fields
+  if (unitType !== undefined) product.unitType = unitType;
+  if (brand !== undefined) product.brand = brand.trim();
+  if (manufacturer !== undefined) product.manufacturer = manufacturer.trim();
+  if (origin !== undefined) product.origin = origin.trim();
+  if (material !== undefined) product.material = material.trim();
+  if (color !== undefined) product.color = color.trim();
+  if (weight !== undefined) product.weight = weight.trim();
+  if (warranty !== undefined) product.warranty = warranty.trim();
+  if (hsnCode !== undefined) product.hsnCode = hsnCode.trim();
+
+  if (dimensions !== undefined) {
     try {
-      const result = await uploadToCloudinary(req.file.buffer);
-      product.image = result.secure_url;
+      product.dimensions = typeof dimensions === 'string' ? JSON.parse(dimensions) : dimensions;
+    } catch (e) {
+      throw new ValidationError('Invalid dimensions format');
+    }
+  }
+
+  if (specifications !== undefined) {
+    try {
+      product.specifications = typeof specifications === 'string' ? JSON.parse(specifications) : specifications;
+    } catch (e) {
+      throw new ValidationError('Invalid specifications format');
+    }
+  }
+
+  // Handle multi-image upload
+  let keptImages = [];
+  if (existingImages) {
+    try {
+      keptImages = typeof existingImages === 'string' ? JSON.parse(existingImages) : existingImages;
+      if (!Array.isArray(keptImages)) keptImages = [];
+    } catch (e) {
+      keptImages = [];
+    }
+  }
+
+  let newImageUrls = [];
+  if (req.files && req.files.length > 0) {
+    try {
+      const uploadPromises = req.files.map(file => uploadToCloudinary(file.buffer));
+      const results = await Promise.all(uploadPromises);
+      newImageUrls = results.map(result => result.secure_url);
     } catch (error) {
       throw new ValidationError('Image upload failed. Please try again.');
+    }
+  }
+
+  // If we have any image changes (new files or existing images list provided)
+  if (req.files?.length > 0 || existingImages !== undefined) {
+    const allImages = [...keptImages, ...newImageUrls];
+    product.images = allImages;
+    if (allImages.length > 0) {
+      product.image = allImages[0];
     }
   }
 
