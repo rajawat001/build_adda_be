@@ -1,43 +1,34 @@
 const crypto = require('crypto');
 const axios = require('axios');
-const {
-  merchantId,
-  baseUrl,
-  callbackUrl,
-  generateChecksum,
-  generateStatusChecksum
-} = require('../config/phonepe');
+const { baseUrl, getAccessToken } = require('../config/phonepe');
 
 class PaymentService {
   /**
-   * Initiate a PhonePe payment (redirect-based)
-   * Returns the redirect URL for the user to complete payment
+   * Initiate a PhonePe v2 Standard Checkout payment.
+   * Returns the redirect URL for the user to complete payment.
    */
-  async initiatePayment({ merchantTransactionId, amount, userId, redirectUrl }) {
+  async initiatePayment({ merchantOrderId, amount, redirectUrl }) {
+    const token = await getAccessToken();
+
     const payload = {
-      merchantId,
-      merchantTransactionId,
-      merchantUserId: userId.toString(),
+      merchantOrderId,
       amount: Math.round(amount * 100), // Convert to paise
-      redirectUrl,
-      redirectMode: 'REDIRECT',
-      callbackUrl,
-      paymentInstrument: {
-        type: 'PAY_PAGE'
+      paymentFlow: {
+        type: 'PG_CHECKOUT',
+        message: 'Payment for BuildAdda order',
+        merchantUrls: {
+          redirectUrl
+        }
       }
     };
 
-    const base64Payload = Buffer.from(JSON.stringify(payload)).toString('base64');
-    const apiEndpoint = '/pg/v1/pay';
-    const checksum = generateChecksum(base64Payload, apiEndpoint);
-
     const response = await axios.post(
-      `${baseUrl}${apiEndpoint}`,
-      { request: base64Payload },
+      `${baseUrl}/checkout/v2/pay`,
+      payload,
       {
         headers: {
           'Content-Type': 'application/json',
-          'X-VERIFY': checksum
+          'Authorization': `O-Bearer ${token}`
         }
       }
     );
@@ -46,19 +37,18 @@ class PaymentService {
   }
 
   /**
-   * Check payment status from PhonePe
+   * Check payment status from PhonePe v2 API.
+   * Uses merchantOrderId (not merchantTransactionId).
    */
-  async checkPaymentStatus(merchantTransactionId) {
-    const apiEndpoint = `/pg/v1/status/${merchantId}/${merchantTransactionId}`;
-    const checksum = generateStatusChecksum(apiEndpoint);
+  async checkPaymentStatus(merchantOrderId) {
+    const token = await getAccessToken();
 
     const response = await axios.get(
-      `${baseUrl}${apiEndpoint}`,
+      `${baseUrl}/checkout/v2/order/${merchantOrderId}/status?details=true`,
       {
         headers: {
           'Content-Type': 'application/json',
-          'X-VERIFY': checksum,
-          'X-MERCHANT-ID': merchantId
+          'Authorization': `O-Bearer ${token}`
         }
       }
     );
@@ -67,39 +57,46 @@ class PaymentService {
   }
 
   /**
-   * Verify webhook checksum from PhonePe server-to-server callback
+   * Verify webhook authorization header.
+   * PhonePe v2 sends SHA256(username:password) as the Authorization header.
+   * For now, if no webhook credentials are configured, skip verification.
    */
-  verifyWebhookChecksum(xVerifyHeader, base64ResponsePayload) {
-    const apiEndpoint = '/pg/v1/pay';
-    const string = base64ResponsePayload + apiEndpoint + require('../config/phonepe').saltKey;
-    const sha256 = crypto.createHash('sha256').update(string).digest('hex');
-    const expectedChecksum = sha256 + '###' + require('../config/phonepe').saltIndex;
-    return xVerifyHeader === expectedChecksum;
+  verifyWebhookAuth(authHeader) {
+    const webhookUser = process.env.PHONEPE_WEBHOOK_USERNAME;
+    const webhookPass = process.env.PHONEPE_WEBHOOK_PASSWORD;
+
+    // If webhook credentials not configured, accept all (dev/test mode)
+    if (!webhookUser || !webhookPass) {
+      console.warn('PhonePe webhook credentials not configured — skipping verification');
+      return true;
+    }
+
+    const expected = crypto.createHash('sha256')
+      .update(`${webhookUser}:${webhookPass}`)
+      .digest('hex');
+
+    return authHeader === expected;
   }
 
   /**
-   * Create a refund via PhonePe
+   * Create a refund via PhonePe v2 API.
    */
-  async createRefund({ originalTransactionId, merchantTransactionId, amount }) {
+  async createRefund({ merchantOrderId, merchantRefundId, amount }) {
+    const token = await getAccessToken();
+
     const payload = {
-      merchantId,
-      merchantUserId: '',
-      originalTransactionId,
-      merchantTransactionId,
-      amount: Math.round(amount * 100)
+      merchantRefundId,
+      originalMerchantOrderId: merchantOrderId,
+      amount: Math.round(amount * 100) // Convert to paise
     };
 
-    const base64Payload = Buffer.from(JSON.stringify(payload)).toString('base64');
-    const apiEndpoint = '/pg/v1/refund';
-    const checksum = generateChecksum(base64Payload, apiEndpoint);
-
     const response = await axios.post(
-      `${baseUrl}${apiEndpoint}`,
-      { request: base64Payload },
+      `${baseUrl}/payments/v2/refund`,
+      payload,
       {
         headers: {
           'Content-Type': 'application/json',
-          'X-VERIFY': checksum
+          'Authorization': `O-Bearer ${token}`
         }
       }
     );

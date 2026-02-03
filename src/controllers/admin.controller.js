@@ -738,12 +738,12 @@ exports.processRefund = asyncHandler(async (req, res) => {
     throw new ValidationError(`Refund amount must be between 1 and ${order.totalAmount}`);
   }
 
-  // Create refund via PhonePe
-  const refundTransactionId = `REFUND_${order._id}_${Date.now()}`;
+  // Create refund via PhonePe v2
+  const refundId = `REFUND_${order._id}_${Date.now()}`;
 
   const refundResponse = await paymentService.createRefund({
-    originalTransactionId: order.phonepeMerchantTransactionId,
-    merchantTransactionId: refundTransactionId,
+    merchantOrderId: order.phonepeMerchantTransactionId,
+    merchantRefundId: refundId,
     amount: refundAmount
   });
 
@@ -752,8 +752,8 @@ exports.processRefund = asyncHandler(async (req, res) => {
   order.refundStatus = 'pending';
   order.refundedAt = new Date();
 
-  // If PhonePe immediately confirms refund
-  if (refundResponse.code === 'PAYMENT_SUCCESS') {
+  // v2 refund response uses state instead of code
+  if (refundResponse.state === 'COMPLETED') {
     order.refundStatus = 'processed';
     order.paymentStatus = 'refunded';
   }

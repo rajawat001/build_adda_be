@@ -19,41 +19,70 @@ const approveDistributorAfterSubscription = async (distributorId) => {
 };
 
 /**
- * PhonePe webhook handler (server-to-server callback)
+ * PhonePe v2 webhook handler (server-to-server callback)
  * No auth middleware — PhonePe calls this directly
- * Always returns 200 to prevent retries
+ *
+ * v2 webhook format:
+ * {
+ *   "event": "checkout.order.completed" | "checkout.order.failed" | "pg.refund.completed",
+ *   "payload": {
+ *     "merchantOrderId": "...",
+ *     "orderId": "...",  // PhonePe's order ID
+ *     "state": "COMPLETED" | "FAILED",
+ *     "amount": 1000,
+ *     "paymentDetails": [{ paymentMode, transactionId, ... }]
+ *   }
+ * }
  */
 exports.handlePhonepeWebhook = async (req, res) => {
   try {
-    const xVerifyHeader = req.headers['x-verify'];
-    const base64Response = req.body.response;
+    // Verify webhook auth (SHA256 of username:password)
+    const authHeader = req.headers['authorization'];
+    const isValid = paymentService.verifyWebhookAuth(authHeader);
+    if (!isValid) {
+      console.error('Webhook: Invalid authorization header');
+      return res.status(200).json({ success: false, message: 'Invalid auth' });
+    }
 
-    if (!xVerifyHeader || !base64Response) {
-      console.error('Webhook: Missing x-verify header or response body');
+    const { event, payload } = req.body;
+
+    if (!event || !payload) {
+      console.error('Webhook: Missing event or payload');
       return res.status(200).json({ success: false, message: 'Missing data' });
     }
 
-    // Verify checksum
-    const isValid = paymentService.verifyWebhookChecksum(xVerifyHeader, base64Response);
-    if (!isValid) {
-      console.error('Webhook: Invalid checksum');
-      return res.status(200).json({ success: false, message: 'Invalid checksum' });
-    }
+    const { merchantOrderId, state, paymentDetails } = payload;
+    console.log(`Webhook received: event=${event}, merchantOrderId=${merchantOrderId}, state=${state}`);
 
-    // Decode payload
-    const decodedPayload = JSON.parse(Buffer.from(base64Response, 'base64').toString('utf-8'));
-    const { merchantTransactionId, transactionId, code, paymentInstrument } = decodedPayload.data || {};
-    const isSuccess = code === 'PAYMENT_SUCCESS';
+    // Extract transaction details from paymentDetails array
+    const firstPayment = paymentDetails && paymentDetails.length > 0 ? paymentDetails[0] : {};
+    const transactionId = firstPayment.transactionId || '';
+    const paymentMode = firstPayment.paymentMode || '';
 
-    console.log(`Webhook received: txnId=${merchantTransactionId}, code=${code}`);
+    switch (event) {
+      case 'checkout.order.completed':
+        if (merchantOrderId && merchantOrderId.startsWith('ORDER_')) {
+          await handleOrderWebhook(merchantOrderId, transactionId, true, paymentMode);
+        } else if (merchantOrderId && merchantOrderId.startsWith('SUB_')) {
+          await handleSubscriptionWebhook(merchantOrderId, transactionId, true);
+        }
+        break;
 
-    // Route by prefix
-    if (merchantTransactionId && merchantTransactionId.startsWith('ORDER_')) {
-      await handleOrderWebhook(merchantTransactionId, transactionId, isSuccess, paymentInstrument);
-    } else if (merchantTransactionId && merchantTransactionId.startsWith('SUB_')) {
-      await handleSubscriptionWebhook(merchantTransactionId, transactionId, isSuccess);
-    } else {
-      console.warn('Webhook: Unknown merchantTransactionId prefix:', merchantTransactionId);
+      case 'checkout.order.failed':
+        if (merchantOrderId && merchantOrderId.startsWith('ORDER_')) {
+          await handleOrderWebhook(merchantOrderId, transactionId, false, paymentMode);
+        } else if (merchantOrderId && merchantOrderId.startsWith('SUB_')) {
+          await handleSubscriptionWebhook(merchantOrderId, transactionId, false);
+        }
+        break;
+
+      case 'pg.refund.completed':
+      case 'pg.refund.failed':
+        console.log(`Webhook: Refund event ${event} for ${merchantOrderId}`);
+        break;
+
+      default:
+        console.warn('Webhook: Unknown event type:', event);
     }
 
     return res.status(200).json({ success: true });
@@ -63,22 +92,22 @@ exports.handlePhonepeWebhook = async (req, res) => {
   }
 };
 
-async function handleOrderWebhook(merchantTransactionId, transactionId, isSuccess, paymentInstrument) {
-  const order = await Order.findOne({ phonepeMerchantTransactionId: merchantTransactionId });
+async function handleOrderWebhook(merchantOrderId, transactionId, isSuccess, paymentMode) {
+  const order = await Order.findOne({ phonepeMerchantTransactionId: merchantOrderId });
   if (!order) {
-    console.error('Webhook: Order not found for', merchantTransactionId);
+    console.error('Webhook: Order not found for', merchantOrderId);
     return;
   }
 
   // Idempotent: skip if already paid
   if (order.paymentStatus === 'paid') {
-    console.log('Webhook: Order already paid, skipping', merchantTransactionId);
+    console.log('Webhook: Order already paid, skipping', merchantOrderId);
     return;
   }
 
   if (isSuccess) {
     order.phonepeTransactionId = transactionId;
-    order.phonepePaymentInstrument = paymentInstrument?.type || '';
+    order.phonepePaymentInstrument = paymentMode;
     order.paymentStatus = 'paid';
     order.orderStatus = 'confirmed';
     await order.save();
@@ -94,16 +123,16 @@ async function handleOrderWebhook(merchantTransactionId, transactionId, isSucces
   }
 }
 
-async function handleSubscriptionWebhook(merchantTransactionId, transactionId, isSuccess) {
-  const subscription = await Subscription.findOne({ phonepeMerchantTransactionId: merchantTransactionId });
+async function handleSubscriptionWebhook(merchantOrderId, transactionId, isSuccess) {
+  const subscription = await Subscription.findOne({ phonepeMerchantTransactionId: merchantOrderId });
   if (!subscription) {
-    console.error('Webhook: Subscription not found for', merchantTransactionId);
+    console.error('Webhook: Subscription not found for', merchantOrderId);
     return;
   }
 
   // Idempotent: skip if already paid
   if (subscription.paymentStatus === 'paid') {
-    console.log('Webhook: Subscription already paid, skipping', merchantTransactionId);
+    console.log('Webhook: Subscription already paid, skipping', merchantOrderId);
     return;
   }
 

@@ -1,53 +1,63 @@
-const crypto = require('crypto');
+const axios = require('axios');
 
-const merchantId = process.env.PHONEPE_MERCHANT_ID;
-const saltKey = process.env.PHONEPE_SALT_KEY;
-const saltIndex = process.env.PHONEPE_SALT_INDEX || '1';
+const clientId = process.env.PHONEPE_CLIENT_ID;
+const clientSecret = process.env.PHONEPE_CLIENT_SECRET;
+const clientVersion = process.env.PHONEPE_CLIENT_VERSION || '1';
 const env = process.env.PHONEPE_ENV || 'sandbox';
 const redirectBaseUrl = process.env.PHONEPE_REDIRECT_BASE_URL || 'http://localhost:3000';
+const backendPublicUrl = process.env.BACKEND_PUBLIC_URL || 'http://localhost:5000';
 
 const baseUrl = env === 'production'
-  ? 'https://api.phonepe.com/apis/hermes'
+  ? 'https://api.phonepe.com/apis/pg'
   : 'https://api-preprod.phonepe.com/apis/pg-sandbox';
 
-const callbackUrl = `${process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(':3000', ':5000') : 'http://localhost:5000'}/api/payments/phonepe`;
+const authUrl = env === 'production'
+  ? 'https://api.phonepe.com/apis/identity-manager/v1/oauth/token'
+  : `${baseUrl}/v1/oauth/token`;
+
+// Webhook callback URL (must be publicly accessible — use ngrok for local dev)
+const callbackUrl = `${backendPublicUrl}/api/payments/phonepe`;
+
+// ─── OAuth Token Management ───
+let cachedToken = null;
+let tokenExpiresAt = 0;
 
 /**
- * Generate X-VERIFY checksum for PhonePe API requests
- * Format: SHA256(base64Payload + apiEndpoint + saltKey) + "###" + saltIndex
+ * Get a valid OAuth access token.
+ * Caches the token and refreshes 60s before expiry.
  */
-function generateChecksum(base64Payload, apiEndpoint) {
-  const string = base64Payload + apiEndpoint + saltKey;
-  const sha256 = crypto.createHash('sha256').update(string).digest('hex');
-  return sha256 + '###' + saltIndex;
-}
+async function getAccessToken() {
+  const now = Math.floor(Date.now() / 1000);
 
-/**
- * Generate checksum for status check (GET requests)
- * Format: SHA256(apiEndpoint + saltKey) + "###" + saltIndex
- */
-function generateStatusChecksum(apiEndpoint) {
-  const string = apiEndpoint + saltKey;
-  const sha256 = crypto.createHash('sha256').update(string).digest('hex');
-  return sha256 + '###' + saltIndex;
-}
+  if (cachedToken && tokenExpiresAt > now + 60) {
+    return cachedToken;
+  }
 
-/**
- * Verify webhook checksum from PhonePe callback
- */
-function verifyChecksum(receivedChecksum, base64ResponsePayload, apiEndpoint) {
-  const expectedChecksum = generateChecksum(base64ResponsePayload, apiEndpoint);
-  return receivedChecksum === expectedChecksum;
+  const params = new URLSearchParams();
+  params.append('client_id', clientId);
+  params.append('client_version', clientVersion);
+  params.append('client_secret', clientSecret);
+  params.append('grant_type', 'client_credentials');
+
+  const response = await axios.post(authUrl, params, {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  });
+
+  const data = response.data;
+  cachedToken = data.access_token;
+  tokenExpiresAt = data.expires_at || (now + 1800); // default 30min if not provided
+
+  console.log('PhonePe OAuth token obtained, expires at:', new Date(tokenExpiresAt * 1000).toISOString());
+  return cachedToken;
 }
 
 module.exports = {
-  merchantId,
-  saltKey,
-  saltIndex,
+  clientId,
+  clientSecret,
+  clientVersion,
   baseUrl,
   redirectBaseUrl,
+  backendPublicUrl,
   callbackUrl,
-  generateChecksum,
-  generateStatusChecksum,
-  verifyChecksum
+  getAccessToken
 };

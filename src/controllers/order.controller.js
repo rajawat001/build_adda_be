@@ -132,7 +132,7 @@ exports.createOrder = asyncHandler(async (req, res) => {
   });
 });
 
-// @desc    Initiate PhonePe payment for online order
+// @desc    Initiate PhonePe v2 payment for online order
 // @route   POST /api/orders/phonepe/initiate
 // @access  Private
 exports.initiatePhonepePayment = asyncHandler(async (req, res) => {
@@ -160,39 +160,41 @@ exports.initiatePhonepePayment = asyncHandler(async (req, res) => {
   }
 
   const { redirectBaseUrl } = require('../config/phonepe');
-  const merchantTransactionId = `ORDER_${order._id}_${Date.now()}`;
-  const redirectUrl = `${redirectBaseUrl}/payment/status?merchantTransactionId=${merchantTransactionId}&type=order&orderId=${order._id}`;
+  const merchantOrderId = `ORDER_${order._id}_${Date.now()}`;
+  const redirectUrl = `${redirectBaseUrl}/payment/status?merchantOrderId=${merchantOrderId}&type=order&orderId=${order._id}`;
 
   const phonePeResponse = await paymentService.initiatePayment({
-    merchantTransactionId,
+    merchantOrderId,
     amount: order.totalAmount,
-    userId,
     redirectUrl
   });
 
-  // Store merchantTransactionId on order
-  order.phonepeMerchantTransactionId = merchantTransactionId;
+  // Store merchantOrderId on order (reuse existing field)
+  order.phonepeMerchantTransactionId = merchantOrderId;
   await order.save();
 
-  const paymentUrl = phonePeResponse.data?.instrumentResponse?.redirectInfo?.url;
+  // v2 response: { orderId, state, redirectUrl }
+  const paymentUrl = phonePeResponse.redirectUrl;
 
   res.json({
     success: true,
     paymentUrl,
-    merchantTransactionId,
+    merchantOrderId,
     orderId: order._id
   });
 });
 
-// @desc    Check PhonePe payment status
+// @desc    Check PhonePe v2 payment status
 // @route   POST /api/orders/phonepe/status
 // @access  Private
 exports.checkPaymentStatus = asyncHandler(async (req, res) => {
-  const { merchantTransactionId, orderId } = req.body;
+  // Support both old (merchantTransactionId) and new (merchantOrderId) field names
+  const merchantOrderId = req.body.merchantOrderId || req.body.merchantTransactionId;
+  const { orderId } = req.body;
   const userId = req.user._id;
 
-  if (!merchantTransactionId || !orderId) {
-    throw new ValidationError('merchantTransactionId and orderId are required');
+  if (!merchantOrderId || !orderId) {
+    throw new ValidationError('merchantOrderId and orderId are required');
   }
 
   const order = await Order.findById(orderId);
@@ -216,13 +218,17 @@ exports.checkPaymentStatus = asyncHandler(async (req, res) => {
     });
   }
 
-  // Check status with PhonePe
-  const statusResponse = await paymentService.checkPaymentStatus(merchantTransactionId);
-  const code = statusResponse.code;
+  // Check status with PhonePe v2 API
+  const statusResponse = await paymentService.checkPaymentStatus(merchantOrderId);
+  const state = statusResponse.state;
 
-  if (code === 'PAYMENT_SUCCESS') {
-    order.phonepeTransactionId = statusResponse.data?.transactionId || '';
-    order.phonepePaymentInstrument = statusResponse.data?.paymentInstrument?.type || '';
+  if (state === 'COMPLETED') {
+    // Extract payment details from v2 response
+    const paymentDetails = statusResponse.paymentDetails || [];
+    const firstPayment = paymentDetails.length > 0 ? paymentDetails[0] : {};
+
+    order.phonepeTransactionId = firstPayment.transactionId || '';
+    order.phonepePaymentInstrument = firstPayment.paymentMode || '';
     order.paymentStatus = 'paid';
     order.orderStatus = 'confirmed';
     await order.save();
@@ -241,7 +247,7 @@ exports.checkPaymentStatus = asyncHandler(async (req, res) => {
     });
   }
 
-  if (code === 'PAYMENT_PENDING') {
+  if (state === 'PENDING') {
     return res.json({
       success: true,
       message: 'Payment is still pending',
@@ -396,10 +402,10 @@ exports.cancelOrder = asyncHandler(async (req, res) => {
   let refundInitiated = false;
   if (order.paymentMethod === 'Online' && order.paymentStatus === 'paid' && order.phonepeMerchantTransactionId) {
     try {
-      const refundTransactionId = `REFUND_${order._id}_${Date.now()}`;
+      const refundId = `REFUND_${order._id}_${Date.now()}`;
       await paymentService.createRefund({
-        originalTransactionId: order.phonepeMerchantTransactionId,
-        merchantTransactionId: refundTransactionId,
+        merchantOrderId: order.phonepeMerchantTransactionId,
+        merchantRefundId: refundId,
         amount: order.totalAmount
       });
       order.refundAmount = order.totalAmount;

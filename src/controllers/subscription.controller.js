@@ -263,7 +263,7 @@ exports.createOrder = async (req, res) => {
     const endDate = new Date();
     endDate.setDate(endDate.getDate() + plan.durationInDays);
 
-    const merchantTransactionId = `SUB_${req.user._id}_${Date.now()}`;
+    const merchantOrderId = `SUB_${req.user._id}_${Date.now()}`;
 
     const subscription = new Subscription({
       distributor: req.user._id,
@@ -276,28 +276,28 @@ exports.createOrder = async (req, res) => {
       couponApplied: coupon ? coupon._id : null,
       discount,
       finalAmount: amount,
-      phonepeMerchantTransactionId: merchantTransactionId
+      phonepeMerchantTransactionId: merchantOrderId
     });
 
     await subscription.save();
 
-    // Initiate PhonePe payment
-    const phonepeRedirectUrl = `${redirectBaseUrl}/payment/status?merchantTransactionId=${merchantTransactionId}&type=subscription&subscriptionId=${subscription._id}`;
+    // Initiate PhonePe v2 payment
+    const phonepeRedirectUrl = `${redirectBaseUrl}/payment/status?merchantOrderId=${merchantOrderId}&type=subscription&subscriptionId=${subscription._id}`;
 
     const phonePeResponse = await paymentService.initiatePayment({
-      merchantTransactionId,
+      merchantOrderId,
       amount,
-      userId: req.user._id,
       redirectUrl: phonepeRedirectUrl
     });
 
-    const paymentUrl = phonePeResponse.data?.instrumentResponse?.redirectInfo?.url;
+    // v2 response: { orderId, state, redirectUrl }
+    const paymentUrl = phonePeResponse.redirectUrl;
 
     res.status(200).json({
       success: true,
       paymentUrl,
       subscription: subscription._id,
-      merchantTransactionId
+      merchantOrderId
     });
   } catch (error) {
     console.error('Error creating order:', error);
@@ -312,12 +312,14 @@ exports.createOrder = async (req, res) => {
 // Check PhonePe payment status for subscription
 exports.verifyPayment = async (req, res) => {
   try {
-    const { merchantTransactionId, subscriptionId } = req.body;
+    // Support both old (merchantTransactionId) and new (merchantOrderId) field names
+    const merchantOrderId = req.body.merchantOrderId || req.body.merchantTransactionId;
+    const { subscriptionId } = req.body;
 
-    if (!merchantTransactionId || !subscriptionId) {
+    if (!merchantOrderId || !subscriptionId) {
       return res.status(400).json({
         success: false,
-        message: 'merchantTransactionId and subscriptionId are required'
+        message: 'merchantOrderId and subscriptionId are required'
       });
     }
 
@@ -341,12 +343,15 @@ exports.verifyPayment = async (req, res) => {
       });
     }
 
-    // Check status with PhonePe
-    const statusResponse = await paymentService.checkPaymentStatus(merchantTransactionId);
-    const code = statusResponse.code;
+    // Check status with PhonePe v2 API
+    const statusResponse = await paymentService.checkPaymentStatus(merchantOrderId);
+    const state = statusResponse.state;
 
-    if (code === 'PAYMENT_SUCCESS') {
-      subscription.phonepeTransactionId = statusResponse.data?.transactionId || '';
+    if (state === 'COMPLETED') {
+      const paymentDetails = statusResponse.paymentDetails || [];
+      const firstPayment = paymentDetails.length > 0 ? paymentDetails[0] : {};
+
+      subscription.phonepeTransactionId = firstPayment.transactionId || '';
       subscription.status = 'active';
       subscription.paymentStatus = 'paid';
       await subscription.save();
@@ -372,7 +377,7 @@ exports.verifyPayment = async (req, res) => {
       });
     }
 
-    if (code === 'PAYMENT_PENDING') {
+    if (state === 'PENDING') {
       return res.status(200).json({
         success: true,
         message: 'Payment is still pending',
