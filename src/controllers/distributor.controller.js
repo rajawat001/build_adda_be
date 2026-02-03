@@ -747,7 +747,7 @@ exports.getProfile = asyncHandler(async (req, res) => {
 // @access  Private (Distributor only)
 exports.updateProfile = asyncHandler(async (req, res) => {
   const distributorId = req.user._id;
-  const { businessName, phone, address, pincode } = req.body;
+  const { businessName, phone, address, pincode, city, state } = req.body;
 
   const distributor = await Distributor.findById(distributorId);
 
@@ -780,6 +780,20 @@ exports.updateProfile = asyncHandler(async (req, res) => {
       throw new ValidationError('Address cannot be empty');
     }
     distributor.address = address.trim();
+  }
+
+  if (city !== undefined) {
+    if (!city.trim()) {
+      throw new ValidationError('City cannot be empty');
+    }
+    distributor.city = city.trim();
+  }
+
+  if (state !== undefined) {
+    if (!state.trim()) {
+      throw new ValidationError('State cannot be empty');
+    }
+    distributor.state = state.trim();
   }
 
   if (pincode !== undefined) {

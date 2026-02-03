@@ -241,12 +241,7 @@ exports.approveDistributor = asyncHandler(async (req, res) => {
 // @access  Private (Admin only)
 exports.updateDistributor = asyncHandler(async (req, res) => {
   const { distributorId } = req.params;
-  const { isActive } = req.body;
-
-  // Validate input
-  if (typeof isActive !== 'boolean') {
-    throw new ValidationError('isActive must be a boolean value');
-  }
+  const { isActive, businessName, ownerName, email, phone, city, state, address, gstNumber } = req.body;
 
   const distributor = await Distributor.findById(distributorId).select('-password');
 
@@ -254,13 +249,48 @@ exports.updateDistributor = asyncHandler(async (req, res) => {
     throw new NotFoundError('Distributor not found');
   }
 
-  // Update only the isActive field (field whitelisting)
-  distributor.isActive = isActive;
+  // Field whitelisting — update only allowed fields
+  if (typeof isActive === 'boolean') {
+    distributor.isActive = isActive;
+  }
+
+  if (businessName !== undefined && businessName.trim()) {
+    distributor.businessName = businessName.trim();
+  }
+
+  if (ownerName !== undefined && ownerName.trim()) {
+    distributor.ownerName = ownerName.trim();
+  }
+
+  if (email !== undefined && email.trim()) {
+    distributor.email = email.trim();
+  }
+
+  if (phone !== undefined && phone.trim()) {
+    distributor.phone = phone.trim();
+  }
+
+  if (city !== undefined && city.trim()) {
+    distributor.city = city.trim();
+  }
+
+  if (state !== undefined && state.trim()) {
+    distributor.state = state.trim();
+  }
+
+  if (address !== undefined && address.trim()) {
+    distributor.address = address.trim();
+  }
+
+  if (gstNumber !== undefined) {
+    distributor.gstNumber = gstNumber.trim();
+  }
+
   await distributor.save();
 
   res.json({
     success: true,
-    message: `Distributor ${isActive ? 'activated' : 'deactivated'} successfully`,
+    message: 'Distributor updated successfully',
     distributor
   });
 });
