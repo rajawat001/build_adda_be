@@ -2,6 +2,7 @@ const authService = require('../services/auth.service');
 const emailService = require('../services/email.service');
 const User = require('../models/User');
 const Distributor = require('../models/Distributor');
+const Order = require('../models/Order');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, NotFoundError, AuthenticationError } = require('../utils/errors');
 
@@ -75,6 +76,24 @@ const register = asyncHandler(async (req, res) => {
     }
 
     user = await User.create(userData);
+  }
+
+  // Link any existing guest orders to the new user account
+  if (role !== 'distributor') {
+    // Debug: Find what guest orders exist for this email
+    const guestOrders = await Order.find({ guestEmail: user.email.toLowerCase() }).select('guestEmail isGuestOrder user orderNumber');
+    console.log(`[Guest Link] Looking for guest orders with email: "${user.email.toLowerCase()}"`);
+    console.log(`[Guest Link] Found ${guestOrders.length} order(s):`, JSON.stringify(guestOrders));
+
+    const linkedResult = await Order.updateMany(
+      {
+        guestEmail: user.email.toLowerCase(),
+        isGuestOrder: true,
+        $or: [{ user: null }, { user: { $exists: false } }]
+      },
+      { $set: { user: user._id, isGuestOrder: false } }
+    );
+    console.log(`[Guest Link] updateMany result: matched=${linkedResult.matchedCount}, modified=${linkedResult.modifiedCount}`);
   }
 
   // Generate token

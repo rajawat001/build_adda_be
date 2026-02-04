@@ -41,8 +41,22 @@ const orderSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: [true, 'User is required'],
+    required: false,  // Optional for guest orders
     index: true
+  },
+  guestEmail: {
+    type: String,
+    lowercase: true,
+    trim: true,
+    index: true     // For linking orders when guest registers
+  },
+  guestPhone: {
+    type: String,
+    trim: true
+  },
+  isGuestOrder: {
+    type: Boolean,
+    default: false
   },
 
   // CRITICAL FIX: Added distributor field for multi-distributor support
@@ -240,12 +254,22 @@ const orderSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// VALIDATION: Either user or guestEmail must be present
+orderSchema.pre('validate', function(next) {
+  if (!this.user && !this.guestEmail) {
+    next(new Error('Either user or guestEmail is required'));
+  } else {
+    next();
+  }
+});
+
 // INDEXES for performance optimization
 orderSchema.index({ user: 1, createdAt: -1 });
 orderSchema.index({ distributor: 1, orderStatus: 1 });
 orderSchema.index({ orderNumber: 1 });
 orderSchema.index({ createdAt: -1 });
 orderSchema.index({ paymentStatus: 1, orderStatus: 1 });
+orderSchema.index({ guestEmail: 1, isGuestOrder: 1 });
 
 // VIRTUAL: Check if order can be cancelled
 orderSchema.virtual('canBeCancelled').get(function() {

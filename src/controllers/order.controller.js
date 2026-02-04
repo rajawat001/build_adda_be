@@ -10,12 +10,16 @@ const { ValidationError, NotFoundError, AuthorizationError, AuthenticationError 
 
 // @desc    Create new order
 // @route   POST /api/orders
-// @access  Private
+// @access  Public (optionalAuth — guests provide email)
 exports.createOrder = asyncHandler(async (req, res) => {
-  // FIX: Use _id consistently
-  const userId = req.user._id;
+  const userId = req.user?._id || null;
 
-  const { items, shippingAddress, paymentMethod, couponCode, distributor } = req.body;
+  const { items, shippingAddress, paymentMethod, couponCode, distributor, guestEmail } = req.body;
+
+  // Validation: must be logged in OR provide guestEmail
+  if (!userId && !guestEmail) {
+    throw new ValidationError('Please provide an email address or log in');
+  }
 
   // Validate required fields
   if (!items || items.length === 0) {
@@ -102,7 +106,10 @@ exports.createOrder = asyncHandler(async (req, res) => {
   const totalAmount = subtotal + deliveryCharge - discount;
 
   const orderData = {
-    user: userId,
+    user: userId || undefined,
+    guestEmail: userId ? undefined : guestEmail,
+    guestPhone: userId ? undefined : shippingAddress.phone,
+    isGuestOrder: !userId,
     distributor,
     items: validatedItems,
     subtotal,
@@ -119,13 +126,26 @@ exports.createOrder = asyncHandler(async (req, res) => {
 
   const order = await orderService.createOrder(orderData);
 
+  // Debug: confirm guest order fields
+  if (!userId) {
+    console.log(`[Guest Order] Created order ${order.orderNumber} — guestEmail: "${order.guestEmail}", isGuestOrder: ${order.isGuestOrder}, user: ${order.user}`);
+  }
+
   // Send email notifications (non-blocking)
-  const user = await User.findById(userId);
   const dist = distributorDoc;
-  if (user) {
+  if (userId) {
+    const user = await User.findById(userId);
+    if (user) {
+      emailService.sendOrderConfirmationEmail(
+        { ...order.toObject(), userEmail: user.email },
+        user.name || 'Customer'
+      );
+    }
+  } else if (guestEmail) {
+    // Send confirmation to guest email
     emailService.sendOrderConfirmationEmail(
-      { ...order.toObject(), userEmail: user.email },
-      user.name || 'Customer'
+      { ...order.toObject(), userEmail: guestEmail },
+      shippingAddress.fullName || 'Customer'
     );
   }
   if (dist) {
@@ -149,10 +169,10 @@ exports.createOrder = asyncHandler(async (req, res) => {
 
 // @desc    Initiate PhonePe v2 payment for online order
 // @route   POST /api/orders/phonepe/initiate
-// @access  Private
+// @access  Public (optionalAuth)
 exports.initiatePhonepePayment = asyncHandler(async (req, res) => {
-  const { orderId } = req.body;
-  const userId = req.user._id;
+  const { orderId, guestEmail } = req.body;
+  const userId = req.user?._id || null;
 
   if (!orderId) {
     throw new ValidationError('Order ID is required');
@@ -164,8 +184,16 @@ exports.initiatePhonepePayment = asyncHandler(async (req, res) => {
     throw new NotFoundError('Order not found');
   }
 
-  // SECURITY: Verify user owns this order
-  if (order.user.toString() !== userId.toString()) {
+  // SECURITY: Verify ownership — logged-in user or guest email match
+  if (userId) {
+    if (order.user && order.user.toString() !== userId.toString()) {
+      throw new AuthorizationError('You are not authorized to access this order');
+    }
+  } else if (order.isGuestOrder) {
+    if (!guestEmail || order.guestEmail !== guestEmail.toLowerCase()) {
+      throw new AuthorizationError('You are not authorized to access this order');
+    }
+  } else {
     throw new AuthorizationError('You are not authorized to access this order');
   }
 
@@ -201,12 +229,11 @@ exports.initiatePhonepePayment = asyncHandler(async (req, res) => {
 
 // @desc    Check PhonePe v2 payment status
 // @route   POST /api/orders/phonepe/status
-// @access  Private
+// @access  Public (no auth — payment callback)
 exports.checkPaymentStatus = asyncHandler(async (req, res) => {
   // Support both old (merchantTransactionId) and new (merchantOrderId) field names
   const merchantOrderId = req.body.merchantOrderId || req.body.merchantTransactionId;
   const { orderId } = req.body;
-  const userId = req.user._id;
 
   if (!merchantOrderId || !orderId) {
     throw new ValidationError('merchantOrderId and orderId are required');
@@ -216,11 +243,6 @@ exports.checkPaymentStatus = asyncHandler(async (req, res) => {
 
   if (!order) {
     throw new NotFoundError('Order not found');
-  }
-
-  // SECURITY: Verify ownership
-  if (order.user.toString() !== userId.toString()) {
-    throw new AuthorizationError('You are not authorized to access this order');
   }
 
   // If already paid (e.g. by webhook), return success immediately
@@ -249,9 +271,13 @@ exports.checkPaymentStatus = asyncHandler(async (req, res) => {
     await order.save();
 
     // Send payment confirmation email (non-blocking)
-    const payUser = await User.findById(userId);
-    if (payUser) {
-      emailService.sendPaymentConfirmationEmail(order, payUser.name || 'Customer', payUser.email);
+    if (order.user) {
+      const payUser = await User.findById(order.user);
+      if (payUser) {
+        emailService.sendPaymentConfirmationEmail(order, payUser.name || 'Customer', payUser.email);
+      }
+    } else if (order.guestEmail) {
+      emailService.sendPaymentConfirmationEmail(order, order.shippingAddress?.fullName || 'Customer', order.guestEmail);
     }
 
     return res.json({
@@ -285,10 +311,10 @@ exports.checkPaymentStatus = asyncHandler(async (req, res) => {
 
 // @desc    Confirm Cash on Delivery order
 // @route   POST /api/orders/cod/confirm
-// @access  Private
+// @access  Public (optionalAuth)
 exports.confirmCOD = asyncHandler(async (req, res) => {
-  const { orderId } = req.body;
-  const userId = req.user._id;
+  const { orderId, guestEmail } = req.body;
+  const userId = req.user?._id || null;
 
   if (!orderId) {
     throw new ValidationError('Order ID is required');
@@ -300,8 +326,16 @@ exports.confirmCOD = asyncHandler(async (req, res) => {
     throw new NotFoundError('Order not found');
   }
 
-  // CRITICAL FIX: Verify user owns this order (was missing!)
-  if (order.user.toString() !== userId.toString()) {
+  // SECURITY: Verify ownership — logged-in user or guest email match
+  if (userId) {
+    if (order.user && order.user.toString() !== userId.toString()) {
+      throw new AuthorizationError('You are not authorized to access this order');
+    }
+  } else if (order.isGuestOrder) {
+    if (!guestEmail || order.guestEmail !== guestEmail.toLowerCase()) {
+      throw new AuthorizationError('You are not authorized to access this order');
+    }
+  } else {
     throw new AuthorizationError('You are not authorized to access this order');
   }
 
@@ -556,6 +590,35 @@ exports.updateOrderStatus = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     message: 'Order status updated successfully',
+    order
+  });
+});
+
+// @desc    Get guest order by ID + email
+// @route   GET /api/orders/guest/:orderId?email=...
+// @access  Public
+exports.getGuestOrder = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const { email } = req.query;
+
+  if (!email) {
+    throw new ValidationError('Email is required to look up guest orders');
+  }
+
+  const order = await Order.findOne({
+    _id: orderId,
+    guestEmail: email.toLowerCase(),
+    isGuestOrder: true
+  })
+    .populate('distributor', 'businessName phone email')
+    .populate('items.product', 'name image price');
+
+  if (!order) {
+    throw new NotFoundError('Order not found');
+  }
+
+  res.json({
+    success: true,
     order
   });
 });

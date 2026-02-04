@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const Distributor = require('../models/Distributor');
+const Order = require('../models/Order');
 const authService = require('../services/auth.service');
 const otpService = require('../services/otp.service');
 const emailService = require('../services/email.service');
@@ -232,6 +233,21 @@ const verifyRegisterOTP = asyncHandler(async (req, res) => {
 
   // Consume OTP
   await otpService.consumeOTP(email, 'register');
+
+  // Link any existing guest orders to the new user account
+  if (role !== 'distributor') {
+    const linkedResult = await Order.updateMany(
+      {
+        guestEmail: user.email.toLowerCase(),
+        isGuestOrder: true,
+        $or: [{ user: null }, { user: { $exists: false } }]
+      },
+      { $set: { user: user._id, isGuestOrder: false } }
+    );
+    if (linkedResult.modifiedCount > 0) {
+      console.log(`[Guest Link] Linked ${linkedResult.modifiedCount} guest order(s) to new user ${user.email}`);
+    }
+  }
 
   // Generate token
   const userRole = role === 'distributor' ? 'distributor' : 'user';
