@@ -70,6 +70,21 @@ exports.createOrder = asyncHandler(async (req, res) => {
     subtotal += product.price * item.quantity;
   }
 
+  // Validate shipping address is within distributor's service area
+  const distributorDoc = await Distributor.findById(distributor);
+  if (!distributorDoc) {
+    throw new NotFoundError('Distributor not found');
+  }
+
+  const shipCity = shippingAddress.city?.toLowerCase().trim();
+  const distCity = distributorDoc.city?.toLowerCase().trim();
+
+  if (!shipCity || !distCity || shipCity !== distCity) {
+    throw new ValidationError(
+      `Delivery not available to ${shippingAddress.city || 'your city'}. ${distributorDoc.businessName} only delivers in ${distributorDoc.city}.`
+    );
+  }
+
   // Calculate pricing
   let discount = 0;
   let coupon = null;
@@ -106,7 +121,7 @@ exports.createOrder = asyncHandler(async (req, res) => {
 
   // Send email notifications (non-blocking)
   const user = await User.findById(userId);
-  const dist = await Distributor.findById(distributor);
+  const dist = distributorDoc;
   if (user) {
     emailService.sendOrderConfirmationEmail(
       { ...order.toObject(), userEmail: user.email },
