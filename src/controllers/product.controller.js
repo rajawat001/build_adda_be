@@ -15,7 +15,11 @@ const escapeRegex = (text) => {
 exports.getAllProducts = asyncHandler(async (req, res) => {
   const { category, minPrice, maxPrice, search, sortBy, page = 1, limit = 24 } = req.query;
 
-  const filters = { isActive: true }; // Only show active products
+  const filters = {
+    isActive: true,
+    // Hide products that are out of stock or below minimum order quantity
+    $expr: { $gte: ['$stock', '$minQuantity'] }
+  };
 
   // Category filter with validation
   if (category) {
@@ -122,7 +126,8 @@ exports.getProductsByCategory = asyncHandler(async (req, res) => {
 
   const products = await Product.find({
     category: categoryId,
-    isActive: true
+    isActive: true,
+    $expr: { $gte: ['$stock', '$minQuantity'] }
   }).populate('distributor', 'businessName city state');
 
   res.json({ success: true, count: products.length, products });
@@ -136,7 +141,8 @@ exports.getProductsByDistributor = asyncHandler(async (req, res) => {
 
   const products = await Product.find({
     distributor: distributorId,
-    isActive: true
+    isActive: true,
+    $expr: { $gte: ['$stock', '$minQuantity'] }
   }).populate('distributor', 'businessName email phone city state rating');
 
   res.json({ success: true, count: products.length, products });
