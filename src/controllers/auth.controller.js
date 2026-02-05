@@ -161,11 +161,6 @@ const login = asyncHandler(async (req, res) => {
     throw new AuthenticationError('Your account has been deactivated');
   }
 
-  // For distributors, check if approved
-  if (userRole === 'distributor' && !user.isApproved) {
-    throw new AuthenticationError('Your distributor account is pending approval');
-  }
-
   // Reset failed login attempts on successful login
   await user.resetLoginAttempts();
 
@@ -175,17 +170,22 @@ const login = asyncHandler(async (req, res) => {
   // Set httpOnly cookie
   res.cookie('token', token, getCookieOptions(req));
 
+  // For distributors, check if approved - allow login but flag for subscription redirect
+  const needsSubscription = userRole === 'distributor' && !user.isApproved;
+
   res.json({
     success: true,
-    message: 'Login successful',
+    message: needsSubscription ? 'Please complete your subscription to activate your account' : 'Login successful',
     user: {
       _id: user._id,
       name: user.name || user.businessName,
       email: user.email,
       phone: user.phone,
       role: userRole,
-      emailVerified: user.emailVerified
-    }
+      emailVerified: user.emailVerified,
+      isApproved: userRole === 'distributor' ? user.isApproved : true
+    },
+    needsSubscription
   });
 });
 

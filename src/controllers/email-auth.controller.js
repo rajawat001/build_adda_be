@@ -54,9 +54,8 @@ const sendLoginOTP = asyncHandler(async (req, res) => {
     throw new AuthenticationError('Your account has been deactivated');
   }
 
-  if (role === 'distributor' && !user.isApproved) {
-    throw new AuthenticationError('Your distributor account is pending approval');
-  }
+  // Allow unapproved distributors to login so they can complete subscription
+  // Frontend will redirect them to subscription page
 
   // Check rate limit
   const canResend = await otpService.canResendOTP(email, 'login');
@@ -110,17 +109,22 @@ const verifyLoginOTP = asyncHandler(async (req, res) => {
   // Set httpOnly cookie
   res.cookie('token', token, getCookieOptions(req));
 
+  // For distributors, check if they need to complete subscription
+  const needsSubscription = role === 'distributor' && !user.isApproved;
+
   res.json({
     success: true,
-    message: 'Login successful',
+    message: needsSubscription ? 'Please complete your subscription to activate your account' : 'Login successful',
     user: {
       _id: user._id,
       name: user.name || user.businessName,
       email: user.email,
       phone: user.phone,
       role,
-      emailVerified: user.emailVerified
-    }
+      emailVerified: user.emailVerified,
+      isApproved: role === 'distributor' ? user.isApproved : true
+    },
+    needsSubscription
   });
 });
 
