@@ -3,8 +3,15 @@ const router = express.Router();
 const notificationController = require('../controllers/notification.controller');
 const authMiddleware = require('../middleware/auth.middleware');
 
-// All routes require authentication
+// Public route — no auth needed
+router.get('/vapid-key', notificationController.getVapidKey);
+
+// All routes below require authentication
 router.use(authMiddleware.protect);
+
+// Push subscription management
+router.post('/subscribe', notificationController.subscribePush);
+router.post('/unsubscribe', notificationController.unsubscribePush);
 
 // Get all notifications for logged-in user
 router.get('/', notificationController.getNotifications);
