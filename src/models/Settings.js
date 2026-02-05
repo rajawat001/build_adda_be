@@ -81,7 +81,7 @@ const settingsSchema = new mongoose.Schema({
     default: ['Local', 'Regional', 'National']
   },
 
-  // Tax Settings
+  // Tax/GST Settings
   taxRate: {
     type: Number,
     default: 18,
@@ -96,6 +96,38 @@ const settingsSchema = new mongoose.Schema({
   taxEnabled: {
     type: Boolean,
     default: true
+  },
+
+  // GST Configuration
+  gst: {
+    enabled: { type: Boolean, default: true },
+    gstin: { type: String, default: '' },           // Company GSTIN
+    pan: { type: String, default: '' },             // Company PAN
+    legalName: { type: String, default: 'BuildAdda' },
+    tradeName: { type: String, default: 'BuildAdda' },
+    cgstRate: { type: Number, default: 9, min: 0, max: 50 },
+    sgstRate: { type: Number, default: 9, min: 0, max: 50 },
+    igstRate: { type: Number, default: 18, min: 0, max: 50 },
+    subscriptionSacCode: { type: String, default: '998361' },  // SAC code for subscription services
+    invoicePrefix: { type: String, default: 'BA' },
+    stateCode: { type: String, default: '24' }  // Gujarat = 24
+  },
+
+  // Company Details (for invoices)
+  company: {
+    name: { type: String, default: 'BuildAdda' },
+    street: { type: String, default: 'Vaishali west,Bhuvneshwari vatika vistar 3rd' },
+    city: { type: String, default: 'Jaipur' },
+    state: { type: String, default: 'Rajasthan' },
+    pincode: { type: String, default: '302034' },
+    country: { type: String, default: 'India' },
+    phone: { type: String, default: '+91 6377845721' },
+    email: { type: String, default: 'support@buildadda.in' },
+    website: { type: String, default: 'https://www.buildadda.in' },
+    bankName: { type: String, default: '' },
+    bankAccount: { type: String, default: '' },
+    bankIfsc: { type: String, default: '' },
+    bankBranch: { type: String, default: '' }
   },
 
   // Email Settings

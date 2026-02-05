@@ -18,4 +18,10 @@ router.post('/verify-payment', subscriptionController.verifyPayment);
 router.get('/history', subscriptionController.getSubscriptionHistory);
 router.post('/cancel', subscriptionController.cancelSubscription);
 
+// Autopay routes
+router.post('/create-order-autopay', subscriptionController.createOrderWithAutopay);
+router.post('/verify-autopay', subscriptionController.verifyAutopayMandate);
+router.post('/toggle-auto-renew', subscriptionController.toggleAutoRenew);
+router.post('/revoke-autopay', subscriptionController.revokeAutopay);
+
 module.exports = router;

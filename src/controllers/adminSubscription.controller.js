@@ -1,8 +1,10 @@
 const SubscriptionPlan = require('../models/SubscriptionPlan');
 const Subscription = require('../models/Subscription');
 const Coupon = require('../models/Coupon');
+const Invoice = require('../models/Invoice');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, NotFoundError, ConflictError } = require('../utils/errors');
+const invoiceService = require('../services/invoice.service');
 
 // ==================== SUBSCRIPTION PLANS ====================
 
@@ -506,6 +508,244 @@ exports.createSubscriptionCoupon = asyncHandler(async (req, res) => {
     success: true,
     message: 'Subscription coupon created successfully',
     coupon
+  });
+});
+
+// ==================== INVOICES ====================
+
+// @desc    Get all invoices with filters
+// @route   GET /api/admin/invoices
+// @access  Private (Admin only)
+exports.getAllInvoices = asyncHandler(async (req, res) => {
+  const {
+    page = 1,
+    limit = 20,
+    invoiceType,
+    financialYear,
+    paymentStatus,
+    distributorId,
+    startDate,
+    endDate,
+    search
+  } = req.query;
+
+  const pageNum = Math.max(1, parseInt(page));
+  const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
+
+  const filter = {};
+
+  if (invoiceType) filter.invoiceType = invoiceType;
+  if (financialYear) filter.financialYear = financialYear;
+  if (paymentStatus) filter.paymentStatus = paymentStatus;
+  if (distributorId) filter['customer.id'] = distributorId;
+
+  if (startDate || endDate) {
+    filter.invoiceDate = {};
+    if (startDate) filter.invoiceDate.$gte = new Date(startDate);
+    if (endDate) filter.invoiceDate.$lte = new Date(endDate);
+  }
+
+  if (search) {
+    filter.$or = [
+      { invoiceNumber: { $regex: search, $options: 'i' } },
+      { 'customer.name': { $regex: search, $options: 'i' } },
+      { 'customer.email': { $regex: search, $options: 'i' } }
+    ];
+  }
+
+  const invoices = await Invoice.find(filter)
+    .populate('subscription', 'plan startDate endDate')
+    .populate('customer.id', 'businessName email phone')
+    .sort({ createdAt: -1 })
+    .limit(limitNum)
+    .skip((pageNum - 1) * limitNum);
+
+  const total = await Invoice.countDocuments(filter);
+
+  // Calculate totals
+  const totalsResult = await Invoice.aggregate([
+    { $match: filter },
+    {
+      $group: {
+        _id: null,
+        totalAmount: { $sum: '$grandTotal' },
+        totalGst: { $sum: '$totalGst' },
+        totalBase: { $sum: '$taxableAmount' }
+      }
+    }
+  ]);
+
+  const totals = totalsResult[0] || { totalAmount: 0, totalGst: 0, totalBase: 0 };
+
+  res.json({
+    success: true,
+    invoices,
+    totals,
+    pagination: {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      pages: Math.ceil(total / limitNum)
+    }
+  });
+});
+
+// @desc    Get single invoice details
+// @route   GET /api/admin/invoices/:invoiceId
+// @access  Private (Admin only)
+exports.getInvoice = asyncHandler(async (req, res) => {
+  const { invoiceId } = req.params;
+
+  const invoice = await Invoice.findById(invoiceId)
+    .populate('subscription')
+    .populate('customer.id', 'businessName email phone address gstin');
+
+  if (!invoice) {
+    throw new NotFoundError('Invoice not found');
+  }
+
+  res.json({
+    success: true,
+    invoice
+  });
+});
+
+// @desc    Get invoices for a specific distributor
+// @route   GET /api/admin/distributors/:distributorId/invoices
+// @access  Private (Admin only)
+exports.getDistributorInvoices = asyncHandler(async (req, res) => {
+  const { distributorId } = req.params;
+  const { page = 1, limit = 20 } = req.query;
+
+  const pageNum = Math.max(1, parseInt(page));
+  const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
+
+  const invoices = await Invoice.find({ 'customer.id': distributorId })
+    .populate('subscription', 'plan startDate endDate status')
+    .sort({ createdAt: -1 })
+    .limit(limitNum)
+    .skip((pageNum - 1) * limitNum);
+
+  const total = await Invoice.countDocuments({ 'customer.id': distributorId });
+
+  res.json({
+    success: true,
+    invoices,
+    pagination: {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      pages: Math.ceil(total / limitNum)
+    }
+  });
+});
+
+// @desc    Get invoice statistics
+// @route   GET /api/admin/invoices/stats
+// @access  Private (Admin only)
+exports.getInvoiceStats = asyncHandler(async (req, res) => {
+  const { financialYear } = req.query;
+
+  const filter = {};
+  if (financialYear) filter.financialYear = financialYear;
+
+  const [
+    totalInvoices,
+    paidInvoices,
+    pendingInvoices,
+    revenueByMonth,
+    gstSummary
+  ] = await Promise.all([
+    Invoice.countDocuments(filter),
+    Invoice.countDocuments({ ...filter, paymentStatus: 'paid' }),
+    Invoice.countDocuments({ ...filter, paymentStatus: 'pending' }),
+    Invoice.aggregate([
+      { $match: { ...filter, paymentStatus: 'paid' } },
+      {
+        $group: {
+          _id: { $month: '$invoiceDate' },
+          revenue: { $sum: '$grandTotal' },
+          gst: { $sum: '$totalGst' },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]),
+    Invoice.aggregate([
+      { $match: { ...filter, paymentStatus: 'paid' } },
+      {
+        $group: {
+          _id: null,
+          totalRevenue: { $sum: '$grandTotal' },
+          totalTaxable: { $sum: '$taxableAmount' },
+          totalCgst: { $sum: '$cgstTotal' },
+          totalSgst: { $sum: '$sgstTotal' },
+          totalIgst: { $sum: '$igstTotal' },
+          totalGst: { $sum: '$totalGst' }
+        }
+      }
+    ])
+  ]);
+
+  const summary = gstSummary[0] || {
+    totalRevenue: 0,
+    totalTaxable: 0,
+    totalCgst: 0,
+    totalSgst: 0,
+    totalIgst: 0,
+    totalGst: 0
+  };
+
+  res.json({
+    success: true,
+    stats: {
+      totalInvoices,
+      paidInvoices,
+      pendingInvoices,
+      revenueByMonth,
+      summary
+    }
+  });
+});
+
+// @desc    Regenerate invoice for a subscription (if invoice was not created)
+// @route   POST /api/admin/subscriptions/:subscriptionId/generate-invoice
+// @access  Private (Admin only)
+exports.regenerateInvoice = asyncHandler(async (req, res) => {
+  const { subscriptionId } = req.params;
+
+  const subscription = await Subscription.findById(subscriptionId);
+
+  if (!subscription) {
+    throw new NotFoundError('Subscription not found');
+  }
+
+  if (subscription.paymentStatus !== 'paid') {
+    throw new ValidationError('Cannot generate invoice for unpaid subscription');
+  }
+
+  // Check if invoice already exists
+  if (subscription.invoice) {
+    const existingInvoice = await Invoice.findById(subscription.invoice);
+    if (existingInvoice) {
+      return res.json({
+        success: true,
+        message: 'Invoice already exists',
+        invoice: existingInvoice
+      });
+    }
+  }
+
+  // Generate new invoice
+  const invoice = await invoiceService.createSubscriptionInvoice(
+    subscriptionId,
+    subscription.phonepeTransactionId
+  );
+
+  res.json({
+    success: true,
+    message: 'Invoice generated successfully',
+    invoice
   });
 });
 

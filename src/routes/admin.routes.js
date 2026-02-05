@@ -78,4 +78,11 @@ router.put('/subscriptions/:subscriptionId/extend', adminSubscriptionController.
 router.get('/subscription-coupons', adminSubscriptionController.getSubscriptionCoupons);
 router.post('/subscription-coupons', adminSubscriptionController.createSubscriptionCoupon);
 
+// Invoices management
+router.get('/invoices/stats', adminSubscriptionController.getInvoiceStats);
+router.get('/invoices', adminSubscriptionController.getAllInvoices);
+router.get('/invoices/:invoiceId', adminSubscriptionController.getInvoice);
+router.get('/distributors/:distributorId/invoices', adminSubscriptionController.getDistributorInvoices);
+router.post('/subscriptions/:subscriptionId/generate-invoice', adminSubscriptionController.regenerateInvoice);
+
 module.exports = router;

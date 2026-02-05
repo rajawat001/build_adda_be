@@ -1,17 +1,34 @@
 const webpush = require('web-push');
 const PushSubscription = require('../models/PushSubscription');
 
-// Initialize VAPID
-webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT || 'mailto:support@buildadda.com',
-  process.env.VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY
-);
+// Check if VAPID keys are configured
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:support@buildadda.com';
+
+let pushEnabled = false;
+
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  try {
+    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+    pushEnabled = true;
+    console.log('Web Push initialized successfully');
+  } catch (error) {
+    console.error('Failed to initialize Web Push:', error.message);
+  }
+} else {
+  console.warn('Web Push disabled: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY not set in environment');
+}
 
 /**
  * Send push notification to all subscriptions for a user
  */
 const sendPushToUser = async (userId, userModel, payload) => {
+  if (!pushEnabled) {
+    // Push notifications not configured, silently skip
+    return;
+  }
+
   try {
     const subscriptions = await PushSubscription.find({ user: userId, userModel });
 
@@ -54,7 +71,23 @@ const sendPushToMultiple = async (userIds, userModel, payload) => {
   }
 };
 
+/**
+ * Get VAPID public key for frontend subscription
+ */
+const getVapidPublicKey = () => {
+  return VAPID_PUBLIC_KEY || null;
+};
+
+/**
+ * Check if push notifications are enabled
+ */
+const isPushEnabled = () => {
+  return pushEnabled;
+};
+
 module.exports = {
   sendPushToUser,
-  sendPushToMultiple
+  sendPushToMultiple,
+  getVapidPublicKey,
+  isPushEnabled
 };

@@ -58,24 +58,34 @@ class PaymentService {
 
   /**
    * Verify webhook authorization header.
-   * PhonePe v2 sends SHA256(username:password) as the Authorization header.
-   * For now, if no webhook credentials are configured, skip verification.
+   * PhonePe v2 sends Basic Auth: "Basic base64(username:password)"
+   * For production, always configure PHONEPE_WEBHOOK_USERNAME and PHONEPE_WEBHOOK_PASSWORD.
    */
   verifyWebhookAuth(authHeader) {
     const webhookUser = process.env.PHONEPE_WEBHOOK_USERNAME;
     const webhookPass = process.env.PHONEPE_WEBHOOK_PASSWORD;
 
-    // If webhook credentials not configured, accept all (dev/test mode)
+    // If webhook credentials not configured, accept all (dev/test mode only)
     if (!webhookUser || !webhookPass) {
-      console.warn('PhonePe webhook credentials not configured — skipping verification');
+      console.warn('PhonePe webhook credentials not configured — skipping verification (DEV MODE)');
       return true;
     }
 
-    const expected = crypto.createHash('sha256')
-      .update(`${webhookUser}:${webhookPass}`)
-      .digest('hex');
+    if (!authHeader || !authHeader.startsWith('Basic ')) {
+      console.error('Webhook: Missing or invalid Authorization header');
+      return false;
+    }
 
-    return authHeader === expected;
+    try {
+      const base64Credentials = authHeader.slice(6); // Remove "Basic "
+      const credentials = Buffer.from(base64Credentials, 'base64').toString('utf8');
+      const [user, pass] = credentials.split(':');
+
+      return user === webhookUser && pass === webhookPass;
+    } catch (error) {
+      console.error('Webhook: Error decoding authorization:', error.message);
+      return false;
+    }
   }
 
   /**

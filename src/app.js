@@ -1,3 +1,7 @@
+// Load environment variables FIRST before any other imports
+const dotenv = require('dotenv');
+dotenv.config();
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -6,12 +10,10 @@ const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const morgan = require('morgan');
-const dotenv = require('dotenv');
+const cron = require('node-cron');
 const connectDB = require('./config/db');
 const { errorHandler, notFound } = require('./middleware/error.middleware');
-
-// Load environment variables
-dotenv.config();
+const { processSubscriptionRenewals, sendRenewalReminders } = require('./jobs/subscriptionRenewal.job');
 
 // Validate required environment variables
 const requiredEnvVars = ['JWT_SECRET', 'MONGODB_URI'];
@@ -207,6 +209,20 @@ const server = app.listen(PORT, () => {
 ║   Status: READY ✓                      ║
 ╚════════════════════════════════════════╝
   `);
+
+  // Schedule subscription renewal job (runs daily at 6 AM)
+  cron.schedule('0 6 * * *', async () => {
+    console.log('Running scheduled subscription renewal job...');
+    await processSubscriptionRenewals();
+  });
+
+  // Schedule renewal reminder job (runs daily at 10 AM)
+  cron.schedule('0 10 * * *', async () => {
+    console.log('Running scheduled renewal reminder job...');
+    await sendRenewalReminders();
+  });
+
+  console.log('Scheduled jobs: Subscription renewal (6 AM), Renewal reminders (10 AM)');
 });
 
 // Graceful shutdown

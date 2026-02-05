@@ -1,10 +1,13 @@
 const paymentService = require('../services/payment.service');
 const Order = require('../models/Order');
 const Subscription = require('../models/Subscription');
+const SubscriptionPlan = require('../models/SubscriptionPlan');
 const Coupon = require('../models/Coupon');
 const Distributor = require('../models/Distributor');
 const User = require('../models/User');
 const emailService = require('../services/email.service');
+const notificationController = require('./notification.controller');
+const invoiceService = require('../services/invoice.service');
 
 const approveDistributorAfterSubscription = async (distributorId) => {
   try {
@@ -81,6 +84,54 @@ exports.handlePhonepeWebhook = async (req, res) => {
         console.log(`Webhook: Refund event ${event} for ${merchantOrderId}`);
         break;
 
+      // ─── AUTOPAY / SUBSCRIPTION EVENTS ───
+      case 'subscription.setup.order.completed':
+        // User authorized the autopay mandate (first payment + mandate setup)
+        await handleAutopayAuthCompleted(payload);
+        break;
+
+      case 'subscription.setup.order.failed':
+        // User cancelled or failed to authorize mandate
+        await handleAutopayAuthFailed(payload);
+        break;
+
+      case 'subscription.notification.completed':
+        // Recurring payment was successfully charged
+        await handleRecurringChargeSuccess(payload);
+        break;
+
+      case 'subscription.notification.failed':
+        // Recurring payment failed
+        await handleRecurringChargeFailed(payload);
+        break;
+
+      case 'subscription.redemption.order.completed':
+        // Subscription redemption completed (alternative event)
+        await handleRecurringChargeSuccess(payload);
+        break;
+
+      case 'subscription.redemption.transaction.completed':
+        // Subscription transaction completed
+        await handleRecurringChargeSuccess(payload);
+        break;
+
+      case 'subscription.paused':
+        console.log(`Webhook: Subscription paused - ${merchantOrderId}`);
+        await handleSubscriptionPaused(payload);
+        break;
+
+      case 'subscription.unpaused':
+        console.log(`Webhook: Subscription unpaused - ${merchantOrderId}`);
+        break;
+
+      case 'subscription.cancelled':
+        await handleSubscriptionCancelled(payload);
+        break;
+
+      case 'subscription.revoked':
+        await handleSubscriptionCancelled(payload);
+        break;
+
       default:
         console.warn('Webhook: Unknown event type:', event);
     }
@@ -149,10 +200,265 @@ async function handleSubscriptionWebhook(merchantOrderId, transactionId, isSucce
 
     // Auto-approve distributor
     await approveDistributorAfterSubscription(subscription.distributor);
+
+    // Generate GST invoice
+    try {
+      await invoiceService.createSubscriptionInvoice(subscription._id, transactionId);
+    } catch (invoiceErr) {
+      console.error('Error creating invoice:', invoiceErr);
+    }
   } else {
     subscription.paymentStatus = 'failed';
     await subscription.save();
   }
+}
+
+// ─────────────────────────────────────────────────────────────
+// AUTOPAY WEBHOOK HANDLERS
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Handle subscription.auth.completed - User authorized autopay mandate
+ */
+async function handleAutopayAuthCompleted(payload) {
+  const { merchantSubscriptionId, subscriptionId: phonePeSubId, paymentDetails } = payload;
+
+  console.log(`Webhook: Autopay authorized - ${merchantSubscriptionId}`);
+
+  const subscription = await Subscription.findOne({
+    'autopay.phonepeSubscriptionId': merchantSubscriptionId
+  });
+
+  if (!subscription) {
+    console.error('Webhook: Subscription not found for autopay auth:', merchantSubscriptionId);
+    return;
+  }
+
+  // Idempotent check
+  if (subscription.autopay?.authStatus === 'authorized' && subscription.paymentStatus === 'paid') {
+    console.log('Webhook: Autopay already authorized, skipping');
+    return;
+  }
+
+  // Extract transaction details from first payment (auth with transaction)
+  const firstPayment = paymentDetails && paymentDetails.length > 0 ? paymentDetails[0] : {};
+
+  subscription.autopay.authStatus = 'authorized';
+  subscription.autopay.authorizedAt = new Date();
+  subscription.phonepeTransactionId = firstPayment.transactionId || '';
+  subscription.status = 'active';
+  subscription.paymentStatus = 'paid';
+  await subscription.save();
+
+  // Increment coupon usage
+  if (subscription.couponApplied) {
+    await Coupon.findByIdAndUpdate(subscription.couponApplied, { $inc: { usedCount: 1 } });
+  }
+
+  // Auto-approve distributor
+  await approveDistributorAfterSubscription(subscription.distributor);
+
+  // Generate GST invoice
+  try {
+    await invoiceService.createSubscriptionInvoice(subscription._id, firstPayment.transactionId);
+  } catch (invoiceErr) {
+    console.error('Error creating invoice for autopay:', invoiceErr);
+  }
+
+  // Send notification
+  notificationController.createNotification(
+    subscription.distributor,
+    {
+      type: 'general',
+      title: 'Subscription Activated!',
+      message: 'Your subscription with auto-renewal is now active.'
+    },
+    'Distributor'
+  );
+}
+
+/**
+ * Handle subscription.auth.failed - User cancelled or failed authorization
+ */
+async function handleAutopayAuthFailed(payload) {
+  const { merchantSubscriptionId } = payload;
+
+  console.log(`Webhook: Autopay auth failed - ${merchantSubscriptionId}`);
+
+  const subscription = await Subscription.findOne({
+    'autopay.phonepeSubscriptionId': merchantSubscriptionId
+  });
+
+  if (!subscription) {
+    console.error('Webhook: Subscription not found for failed auth:', merchantSubscriptionId);
+    return;
+  }
+
+  subscription.autopay.authStatus = 'failed';
+  subscription.paymentStatus = 'failed';
+  await subscription.save();
+}
+
+/**
+ * Handle subscription.notification.charged - Recurring payment success
+ */
+async function handleRecurringChargeSuccess(payload) {
+  const { merchantSubscriptionId, merchantOrderId, amount, paymentDetails } = payload;
+
+  console.log(`Webhook: Recurring charge success - ${merchantSubscriptionId}, order: ${merchantOrderId}`);
+
+  const subscription = await Subscription.findOne({
+    'autopay.phonepeSubscriptionId': merchantSubscriptionId
+  });
+
+  if (!subscription) {
+    console.error('Webhook: Subscription not found for recurring charge:', merchantSubscriptionId);
+    return;
+  }
+
+  // Get the plan to calculate new end date
+  const plan = await SubscriptionPlan.findById(subscription.plan);
+  if (!plan) {
+    console.error('Webhook: Plan not found for subscription:', subscription._id);
+    return;
+  }
+
+  // Extend subscription end date
+  const newEndDate = new Date(subscription.endDate);
+  newEndDate.setDate(newEndDate.getDate() + plan.durationInDays);
+
+  const firstPayment = paymentDetails && paymentDetails.length > 0 ? paymentDetails[0] : {};
+
+  subscription.endDate = newEndDate;
+  subscription.status = 'active';
+  subscription.paymentStatus = 'paid';
+  subscription.phonepeTransactionId = firstPayment.transactionId || '';
+  subscription.autopay.lastRenewalAttempt = new Date();
+  subscription.autopay.lastRenewalStatus = 'success';
+  subscription.autopay.failedAttempts = 0;
+  await subscription.save();
+
+  // Generate renewal invoice
+  try {
+    const chargedAmount = (amount || 0) / 100;  // Convert paise to rupees
+    await invoiceService.createRenewalInvoice(subscription._id, chargedAmount || plan.offerPrice, firstPayment.transactionId);
+  } catch (invoiceErr) {
+    console.error('Error creating renewal invoice:', invoiceErr);
+  }
+
+  // Send notification to distributor
+  notificationController.createNotification(
+    subscription.distributor,
+    {
+      type: 'general',
+      title: 'Subscription Renewed!',
+      message: `Your subscription has been automatically renewed until ${newEndDate.toLocaleDateString()}.`
+    },
+    'Distributor'
+  );
+
+  console.log(`Subscription ${subscription._id} renewed until ${newEndDate}`);
+}
+
+/**
+ * Handle subscription.notification.failed - Recurring payment failed
+ */
+async function handleRecurringChargeFailed(payload) {
+  const { merchantSubscriptionId, merchantOrderId, errorCode, errorMessage } = payload;
+
+  console.log(`Webhook: Recurring charge failed - ${merchantSubscriptionId}, error: ${errorCode}`);
+
+  const subscription = await Subscription.findOne({
+    'autopay.phonepeSubscriptionId': merchantSubscriptionId
+  });
+
+  if (!subscription) {
+    console.error('Webhook: Subscription not found for failed charge:', merchantSubscriptionId);
+    return;
+  }
+
+  subscription.autopay.lastRenewalAttempt = new Date();
+  subscription.autopay.lastRenewalStatus = 'failed';
+  subscription.autopay.failedAttempts = (subscription.autopay.failedAttempts || 0) + 1;
+
+  // After 3 failed attempts, disable autopay
+  if (subscription.autopay.failedAttempts >= 3) {
+    subscription.autopay.enabled = false;
+    subscription.autoRenew = false;
+  }
+
+  await subscription.save();
+
+  // Notify distributor
+  notificationController.createNotification(
+    subscription.distributor,
+    {
+      type: 'general',
+      title: 'Subscription Renewal Failed',
+      message: subscription.autopay.failedAttempts >= 3
+        ? 'Auto-renewal has been disabled after multiple failed attempts. Please renew manually.'
+        : 'We could not process your subscription renewal. We will retry soon.'
+    },
+    'Distributor'
+  );
+}
+
+/**
+ * Handle subscription.cancelled / subscription.revoked - Mandate was cancelled
+ */
+async function handleSubscriptionCancelled(payload) {
+  const { merchantSubscriptionId } = payload;
+
+  console.log(`Webhook: Subscription cancelled/revoked - ${merchantSubscriptionId}`);
+
+  const subscription = await Subscription.findOne({
+    'autopay.phonepeSubscriptionId': merchantSubscriptionId
+  });
+
+  if (!subscription) return;
+
+  subscription.autopay.authStatus = 'revoked';
+  subscription.autopay.enabled = false;
+  subscription.autoRenew = false;
+  await subscription.save();
+
+  notificationController.createNotification(
+    subscription.distributor,
+    {
+      type: 'general',
+      title: 'Auto-Renewal Cancelled',
+      message: 'Your subscription auto-renewal has been cancelled. You can renew manually before expiration.'
+    },
+    'Distributor'
+  );
+}
+
+/**
+ * Handle subscription.paused - Mandate was paused
+ */
+async function handleSubscriptionPaused(payload) {
+  const { merchantSubscriptionId } = payload;
+
+  console.log(`Webhook: Subscription paused - ${merchantSubscriptionId}`);
+
+  const subscription = await Subscription.findOne({
+    'autopay.phonepeSubscriptionId': merchantSubscriptionId
+  });
+
+  if (!subscription) return;
+
+  subscription.autopay.enabled = false;
+  await subscription.save();
+
+  notificationController.createNotification(
+    subscription.distributor,
+    {
+      type: 'general',
+      title: 'Auto-Renewal Paused',
+      message: 'Your subscription auto-renewal has been paused.'
+    },
+    'Distributor'
+  );
 }
 
 module.exports = exports;
