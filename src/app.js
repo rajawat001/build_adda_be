@@ -152,6 +152,8 @@ app.use('/api/admin/email-templates', require('./routes/emailTemplate.routes'));
 app.use('/api/admin/reviews', require('./routes/review.routes'));
 app.use('/api/admin/activity-logs', require('./routes/activityLog.routes'));
 app.use('/api/admin/settings', require('./routes/settings.routes'));
+app.use('/api/admin/export', require('./routes/export.routes'));
+app.use('/api/admin/import', require('./routes/export.routes'));
 app.use('/api/admin/analytics', require('./routes/analytics.routes'));
 app.use('/api/distributor', require('./routes/distributor.routes'));
 app.use('/api/notifications', require('./routes/notification.routes'));
