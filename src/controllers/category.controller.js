@@ -21,9 +21,10 @@ exports.getAllCategories = async (req, res) => {
       .sort({ order: 1, name: 1 });
 
     // Get product counts for each category
+    // NOTE: Product.category is a String enum (e.g. 'Cement'), not an ObjectId reference
     const categoriesWithCounts = await Promise.all(
       categories.map(async (category) => {
-        const productCount = await Product.countDocuments({ category: category._id });
+        const productCount = await Product.countDocuments({ category: category.name });
         return {
           ...category.toObject(),
           productCount
@@ -104,8 +105,8 @@ exports.getCategoryById = async (req, res) => {
       });
     }
 
-    // Get product count
-    const productCount = await Product.countDocuments({ category: category._id });
+    // Get product count (Product.category is a String enum, not ObjectId)
+    const productCount = await Product.countDocuments({ category: category.name });
 
     // Get category path
     const path = await category.getPath();
@@ -313,8 +314,8 @@ exports.deleteCategory = async (req, res) => {
       });
     }
 
-    // Check if category has products
-    const productCount = await Product.countDocuments({ category: category._id });
+    // Check if category has products (Product.category is a String enum, not ObjectId)
+    const productCount = await Product.countDocuments({ category: category.name });
     if (productCount > 0) {
       return res.status(400).json({
         success: false,
@@ -396,11 +397,11 @@ exports.getCategoryStats = async (req, res) => {
     const inactiveCategories = await Category.countDocuments({ isActive: false });
     const rootCategories = await Category.countDocuments({ parent: null });
 
-    // Get top categories by product count
+    // Get top categories by product count (Product.category is a String enum, not ObjectId)
     const allCategories = await Category.find();
     const categoriesWithProducts = await Promise.all(
       allCategories.map(async (category) => {
-        const productCount = await Product.countDocuments({ category: category._id });
+        const productCount = await Product.countDocuments({ category: category.name });
         return {
           _id: category._id,
           name: category.name,

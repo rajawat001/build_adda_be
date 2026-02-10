@@ -10,6 +10,7 @@
     "create-distributor": "node src/scripts/createDistributor.js",
     "seed-products": "node src/scripts/seedProducts.js",
     "seed": "node seeders/masterSeeder.js",
+    "seed:categories": "node seeders/seedCategories.js",
     "seed:clear": "node seeders/masterSeeder.js --clear",
     "setup:dev": "node seeders/masterSeeder.js --clear",
     "setup:prod": "node seeders/masterSeeder.js"

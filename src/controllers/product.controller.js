@@ -1,5 +1,6 @@
 const productService = require('../services/product.service');
 const Product = require('../models/Product');
+const Category = require('../models/Category');
 const User = require('../models/User');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, NotFoundError } = require('../utils/errors');
@@ -152,24 +153,42 @@ exports.getProductsByDistributor = asyncHandler(async (req, res) => {
 // @route   GET /api/products/categories
 // @access  Public
 exports.getCategories = asyncHandler(async (req, res) => {
-  const categories = [
-    { id: 'Cement', name: 'Cement', icon: '🏗️' },
-    { id: 'Steel', name: 'Steel', icon: '🔩' },
-    { id: 'Bricks', name: 'Bricks', icon: '🧱' },
-    { id: 'Sand', name: 'Sand', icon: '⏳' },
-    { id: 'Paint', name: 'Paint', icon: '🎨' },
-    { id: 'Tiles', name: 'Tiles', icon: '◽' },
-    { id: 'Other', name: 'Other', icon: '📦' }
-  ];
+  // Fetch active categories from database, sorted by order
+  let categories = await Category.find({ isActive: true }).sort('order').lean();
 
-  // Get count for each category
+  // Seed default categories if none exist
+  if (categories.length === 0) {
+    const defaultCategories = [
+      { name: 'Cement', icon: '🏗️', order: 1, image: 'https://images.unsplash.com/photo-1585771724684-38269d6639fd?w=400' },
+      { name: 'Steel', icon: '🔩', order: 2, image: 'https://images.unsplash.com/photo-1567789884554-0b844b597180?w=400' },
+      { name: 'Bricks', icon: '🧱', order: 3, image: 'https://images.unsplash.com/photo-1590075865003-e48277faa558?w=400' },
+      { name: 'Sand', icon: '⏳', order: 4, image: 'https://images.unsplash.com/photo-1455659817273-f96807779a8a?w=400' },
+      { name: 'Paint', icon: '🎨', order: 5, image: 'https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=400' },
+      { name: 'Tiles', icon: '◽', order: 6, image: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=400' },
+      { name: 'Other', icon: '📦', order: 7 }
+    ];
+    await Category.insertMany(defaultCategories);
+    categories = await Category.find({ isActive: true }).sort('order').lean();
+  }
+
+  // Get product count for each category
   const categoriesWithCount = await Promise.all(
     categories.map(async (cat) => {
       const count = await Product.countDocuments({
-        category: cat.id,
+        category: cat.name,
         isActive: true
       });
-      return { ...cat, count };
+      return {
+        _id: cat._id,
+        id: cat.name,
+        name: cat.name,
+        slug: cat.slug,
+        icon: cat.icon,
+        image: cat.image,
+        description: cat.description,
+        order: cat.order,
+        count
+      };
     })
   );
 

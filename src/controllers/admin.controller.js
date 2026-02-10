@@ -323,7 +323,7 @@ exports.deleteDistributor = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/products
 // @access  Private (Admin only)
 exports.getAllProducts = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20, category, isActive } = req.query;
+  const { page = 1, limit = 20, category, isActive, status, stock, priceRange, search, distributor } = req.query;
 
   // Validate and limit pagination
   const pageNum = Math.max(1, parseInt(page));
@@ -331,14 +331,65 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
 
   const filter = {};
 
-  // Filter by category
+  // Filter by category (case-insensitive match against enum)
   if (category) {
-    filter.category = category;
+    const validCategories = ['Cement', 'Steel', 'Bricks', 'Sand', 'Paint', 'Tiles', 'Other'];
+    const matched = validCategories.find(c => c.toLowerCase() === category.toLowerCase());
+    if (matched) {
+      filter.category = matched;
+    }
   }
 
-  // Filter by active status
-  if (isActive !== undefined) {
+  // Filter by status (maps 'active'/'inactive' to isActive boolean)
+  if (status === 'active') {
+    filter.isActive = true;
+  } else if (status === 'inactive') {
+    filter.isActive = false;
+  } else if (isActive !== undefined) {
     filter.isActive = isActive === 'true';
+  }
+
+  // Filter by stock level
+  if (stock === 'outofstock') {
+    filter.stock = 0;
+  } else if (stock === 'lowstock') {
+    filter.stock = { $gt: 0, $lte: 10 };
+  } else if (stock === 'instock') {
+    filter.stock = { $gt: 10 };
+  }
+
+  // Filter by price range (format: "min-max")
+  if (priceRange && priceRange.includes('-')) {
+    const [minStr, maxStr] = priceRange.split('-');
+    const min = parseFloat(minStr);
+    const max = parseFloat(maxStr);
+    if (!isNaN(min) && !isNaN(max)) {
+      filter.price = { $gte: min, $lte: max };
+    } else if (!isNaN(min)) {
+      filter.price = { $gte: min };
+    } else if (!isNaN(max)) {
+      filter.price = { $lte: max };
+    }
+  }
+
+  // Search by product name
+  if (search && search.trim()) {
+    const escapedSearch = search.trim().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+    filter.name = { $regex: escapedSearch, $options: 'i' };
+  }
+
+  // Filter by distributor name (Product.distributor refs the Distributor model)
+  if (distributor && distributor.trim()) {
+    const escapedDist = distributor.trim().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+    const matchingDistributors = await Distributor.find({
+      businessName: { $regex: escapedDist, $options: 'i' }
+    }).select('_id');
+    if (matchingDistributors.length > 0) {
+      filter.distributor = { $in: matchingDistributors.map(d => d._id) };
+    } else {
+      // No matching distributors — return empty results
+      filter.distributor = null;
+    }
   }
 
   const products = await Product.find(filter)

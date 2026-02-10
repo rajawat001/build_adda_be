@@ -52,106 +52,83 @@ const clearDatabase = async () => {
 const seedCategories = async () => {
   console.log('\n📁 Seeding Categories...');
 
+  // Category names MUST match Product model enum: ['Cement', 'Steel', 'Bricks', 'Sand', 'Paint', 'Tiles', 'Other']
   const categories = [
     {
       name: 'Cement',
       slug: 'cement',
-      description: 'Various types of cement for construction',
+      description: 'Various types of cement for construction including OPC, PPC, and specialty cement',
       icon: '🏗️',
+      image: 'https://images.unsplash.com/photo-1585771724684-38269d6639fd?w=400',
       isActive: true,
       order: 1,
       metaTitle: 'Buy Cement Online - Best Quality Cement',
       metaDescription: 'Shop high-quality cement for all your construction needs'
     },
     {
-      name: 'Steel & TMT Bars',
-      slug: 'steel-tmt-bars',
-      description: 'High-grade steel and TMT bars',
-      icon: '⚙️',
+      name: 'Steel',
+      slug: 'steel',
+      description: 'High-grade steel and TMT bars for strong construction',
+      icon: '🔩',
+      image: 'https://images.unsplash.com/photo-1567789884554-0b844b597180?w=400',
       isActive: true,
       order: 2,
       metaTitle: 'Steel & TMT Bars - Construction Steel',
       metaDescription: 'Premium quality steel and TMT bars for strong construction'
     },
     {
-      name: 'Bricks & Blocks',
-      slug: 'bricks-blocks',
-      description: 'Red bricks, fly ash bricks, concrete blocks',
+      name: 'Bricks',
+      slug: 'bricks',
+      description: 'Red bricks, fly ash bricks, AAC blocks, and concrete blocks',
       icon: '🧱',
+      image: 'https://images.unsplash.com/photo-1590075865003-e48277faa558?w=400',
       isActive: true,
-      order: 3
+      order: 3,
+      metaTitle: 'Buy Bricks & Blocks Online',
+      metaDescription: 'Quality bricks and blocks for all construction needs'
     },
     {
-      name: 'Sand & Aggregates',
-      slug: 'sand-aggregates',
-      description: 'River sand, M-sand, gravel, stone chips',
-      icon: '⛰️',
+      name: 'Sand',
+      slug: 'sand',
+      description: 'River sand, M-sand, gravel, stone chips, and aggregates',
+      icon: '⏳',
+      image: 'https://images.unsplash.com/photo-1455659817273-f96807779a8a?w=400',
       isActive: true,
-      order: 4
+      order: 4,
+      metaTitle: 'Sand & Aggregates - Construction Sand',
+      metaDescription: 'Premium sand and aggregates for construction projects'
     },
     {
-      name: 'Paint & Putty',
-      slug: 'paint-putty',
-      description: 'Interior and exterior paints, wall putty',
+      name: 'Paint',
+      slug: 'paint',
+      description: 'Interior and exterior paints, wall putty, primers, and coatings',
       icon: '🎨',
+      image: 'https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=400',
       isActive: true,
-      order: 5
+      order: 5,
+      metaTitle: 'Buy Paints & Putty Online',
+      metaDescription: 'Top quality paints and wall putty for your home'
     },
     {
-      name: 'Tiles & Marble',
-      slug: 'tiles-marble',
-      description: 'Floor tiles, wall tiles, marble, granite',
-      icon: '◻️',
+      name: 'Tiles',
+      slug: 'tiles',
+      description: 'Floor tiles, wall tiles, marble, granite, and vitrified tiles',
+      icon: '◽',
+      image: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=400',
       isActive: true,
-      order: 6
+      order: 6,
+      metaTitle: 'Tiles & Marble - Floor and Wall Tiles',
+      metaDescription: 'Premium tiles and marble for flooring and walls'
     },
     {
-      name: 'Plumbing & Sanitary',
-      slug: 'plumbing-sanitary',
-      description: 'Pipes, fittings, bathroom fixtures',
-      icon: '🚿',
+      name: 'Other',
+      slug: 'other',
+      description: 'Plumbing, electrical, hardware, roofing, and other building materials',
+      icon: '📦',
       isActive: true,
-      order: 7
-    },
-    {
-      name: 'Electrical Items',
-      slug: 'electrical',
-      description: 'Wires, switches, MCBs, lights',
-      icon: '💡',
-      isActive: true,
-      order: 8
-    },
-    {
-      name: 'Doors & Windows',
-      slug: 'doors-windows',
-      description: 'Wooden doors, UPVC windows, aluminum frames',
-      icon: '🚪',
-      isActive: true,
-      order: 9
-    },
-    {
-      name: 'Hardware & Tools',
-      slug: 'hardware-tools',
-      description: 'Construction tools, hardware fittings',
-      icon: '🔨',
-      isActive: true,
-      order: 10
-    },
-    {
-      name: 'Roofing Materials',
-      slug: 'roofing',
-      description: 'Roofing sheets, waterproofing materials',
-      icon: '🏠',
-      isActive: true,
-      order: 11
-    },
-    {
-      name: 'Plywood & Timber',
-      slug: 'plywood-timber',
-      description: 'Plywood, MDF, timber, laminates',
-      icon: '🪵',
-      isActive: true,
-      order: 12
+      order: 7,
+      metaTitle: 'Other Building Materials',
+      metaDescription: 'All other construction and building supplies'
     }
   ];
 
@@ -363,6 +340,7 @@ const seedProducts = async (categories, distributors) => {
   console.log('\n📦 Seeding Products...');
 
   const products = [];
+  // Product template keys match Product model enum: ['Cement', 'Steel', 'Bricks', 'Sand', 'Paint', 'Tiles', 'Other']
   const productTemplates = {
     'Cement': [
       { name: 'UltraTech Cement OPC 53 Grade', price: 380, unit: 'bag', minOrder: 10, image: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=500' },
@@ -371,104 +349,59 @@ const seedProducts = async (categories, distributors) => {
       { name: 'JK Super Cement', price: 375, unit: 'bag', minOrder: 10, image: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=500' },
       { name: 'Dalmia Premium Cement', price: 385, unit: 'bag', minOrder: 10, image: 'https://images.unsplash.com/photo-1584445584400-0a35aaa6e616?w=500' }
     ],
-    'Steel & TMT Bars': [
+    'Steel': [
       { name: 'TATA Tiscon TMT Bar 10mm', price: 58, unit: 'kg', minOrder: 100, image: 'https://images.unsplash.com/photo-1587293852726-70cdb56c2866?w=500' },
       { name: 'JSW Neosteel TMT Bar 12mm', price: 56, unit: 'kg', minOrder: 100, image: 'https://images.unsplash.com/photo-1504328345606-18bbc8c9d7d1?w=500' },
       { name: 'SAIL TMT Bar 16mm', price: 55, unit: 'kg', minOrder: 100, image: 'https://images.unsplash.com/photo-1587293852726-70cdb56c2866?w=500' },
       { name: 'Kamdhenu TMT Bar 8mm', price: 60, unit: 'kg', minOrder: 50, image: 'https://images.unsplash.com/photo-1504328345606-18bbc8c9d7d1?w=500' },
       { name: 'RINL TMT Bar 20mm', price: 54, unit: 'kg', minOrder: 100, image: 'https://images.unsplash.com/photo-1587293852726-70cdb56c2866?w=500' }
     ],
-    'Bricks & Blocks': [
+    'Bricks': [
       { name: 'Red Clay Bricks 1st Class', price: 8, unit: 'piece', minOrder: 500, image: 'https://images.unsplash.com/photo-1585128792275-433f8860ad8a?w=500' },
       { name: 'Fly Ash Bricks', price: 6, unit: 'piece', minOrder: 500, image: 'https://images.unsplash.com/photo-1615529182904-14819c35db37?w=500' },
       { name: 'AAC Blocks 625x240x100mm', price: 55, unit: 'piece', minOrder: 100, image: 'https://images.unsplash.com/photo-1585128792275-433f8860ad8a?w=500' },
       { name: 'Concrete Hollow Blocks', price: 45, unit: 'piece', minOrder: 100, image: 'https://images.unsplash.com/photo-1615529182904-14819c35db37?w=500' },
       { name: 'Solid Concrete Blocks', price: 35, unit: 'piece', minOrder: 100, image: 'https://images.unsplash.com/photo-1585128792275-433f8860ad8a?w=500' }
     ],
-    'Sand & Aggregates': [
+    'Sand': [
       { name: 'River Sand', price: 1800, unit: 'ton', minOrder: 1, image: 'https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=500' },
       { name: 'M-Sand (Manufactured Sand)', price: 1500, unit: 'ton', minOrder: 1, image: 'https://images.unsplash.com/photo-1607619056574-7b8d3ee536b2?w=500' },
       { name: '20mm Aggregate', price: 1200, unit: 'ton', minOrder: 1, image: 'https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=500' },
       { name: '10mm Aggregate', price: 1300, unit: 'ton', minOrder: 1, image: 'https://images.unsplash.com/photo-1607619056574-7b8d3ee536b2?w=500' },
       { name: 'Stone Dust', price: 900, unit: 'ton', minOrder: 1, image: 'https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=500' }
     ],
-    'Paint & Putty': [
+    'Paint': [
       { name: 'Asian Paints Royale Emulsion', price: 4500, unit: '20L', minOrder: 1, image: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=500' },
       { name: 'Berger Easy Clean Fresh', price: 4200, unit: '20L', minOrder: 1, image: 'https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=500' },
       { name: 'Nerolac Excel Total', price: 4300, unit: '20L', minOrder: 1, image: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=500' },
       { name: 'Birla White Wall Putty', price: 680, unit: 'bag', minOrder: 5, image: 'https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=500' },
       { name: 'JK Wall Putty', price: 650, unit: 'bag', minOrder: 5, image: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=500' }
     ],
-    'Tiles & Marble': [
+    'Tiles': [
       { name: 'Kajaria Vitrified Tiles 2x2', price: 45, unit: 'sqft', minOrder: 100, image: 'https://images.unsplash.com/photo-1615529182904-14819c35db37?w=500' },
       { name: 'Somany Floor Tiles', price: 42, unit: 'sqft', minOrder: 100, image: 'https://images.unsplash.com/photo-1560184897-67f4a3f9a7fa?w=500' },
       { name: 'Makrana White Marble', price: 180, unit: 'sqft', minOrder: 50, image: 'https://images.unsplash.com/photo-1615529182904-14819c35db37?w=500' },
       { name: 'Black Galaxy Granite', price: 120, unit: 'sqft', minOrder: 50, image: 'https://images.unsplash.com/photo-1560184897-67f4a3f9a7fa?w=500' },
       { name: 'Italian Marble', price: 250, unit: 'sqft', minOrder: 50, image: 'https://images.unsplash.com/photo-1615529182904-14819c35db37?w=500' }
     ],
-    'Plumbing & Sanitary': [
+    'Other': [
       { name: 'Jaquar Sink Mixer', price: 3500, unit: 'piece', minOrder: 1, image: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=500' },
       { name: 'Hindware Commode', price: 8500, unit: 'piece', minOrder: 1, image: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=500' },
-      { name: 'CPVC Pipes 1/2 inch', price: 85, unit: 'meter', minOrder: 10, image: 'https://images.unsplash.com/photo-1607400201515-c2c41c07c2f0?w=500' },
-      { name: 'PVC Pipes 4 inch', price: 120, unit: 'meter', minOrder: 10, image: 'https://images.unsplash.com/photo-1607400201515-c2c41c07c2f0?w=500' },
-      { name: 'Cera Wash Basin', price: 4500, unit: 'piece', minOrder: 1, image: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=500' }
-    ],
-    'Electrical Items': [
       { name: 'Polycab Wire 2.5mm', price: 2800, unit: '90m', minOrder: 1, image: 'https://images.unsplash.com/photo-1621905252507-b35492cc74b4?w=500' },
       { name: 'Havells MCB 32A', price: 280, unit: 'piece', minOrder: 5, image: 'https://images.unsplash.com/photo-1621905252507-b35492cc74b4?w=500' },
-      { name: 'Anchor Roma Switches', price: 85, unit: 'piece', minOrder: 10, image: 'https://images.unsplash.com/photo-1621905252507-b35492cc74b4?w=500' },
-      { name: 'Philips LED Bulb 9W', price: 150, unit: 'piece', minOrder: 10, image: 'https://images.unsplash.com/photo-1513506003901-1e6a229e2d15?w=500' },
-      { name: 'Finolex Cable 1.5mm', price: 1800, unit: '90m', minOrder: 1, image: 'https://images.unsplash.com/photo-1621905252507-b35492cc74b4?w=500' }
-    ],
-    'Doors & Windows': [
-      { name: 'Teak Wood Door', price: 18000, unit: 'piece', minOrder: 1, image: 'https://images.unsplash.com/photo-1563298723-dcfebaa392e3?w=500' },
-      { name: 'UPVC Window 4x3 ft', price: 6500, unit: 'piece', minOrder: 1, image: 'https://images.unsplash.com/photo-1603999901971-f8db0bfe8bce?w=500' },
-      { name: 'Aluminum Sliding Door', price: 12000, unit: 'piece', minOrder: 1, image: 'https://images.unsplash.com/photo-1563298723-dcfebaa392e3?w=500' },
-      { name: 'Flush Door', price: 3500, unit: 'piece', minOrder: 1, image: 'https://images.unsplash.com/photo-1603999901971-f8db0bfe8bce?w=500' },
-      { name: 'French Window', price: 8500, unit: 'piece', minOrder: 1, image: 'https://images.unsplash.com/photo-1563298723-dcfebaa392e3?w=500' }
-    ],
-    'Hardware & Tools': [
       { name: 'Bosch Drilling Machine', price: 3500, unit: 'piece', minOrder: 1, image: 'https://images.unsplash.com/photo-1572981779307-38b8cabb2407?w=500' },
-      { name: 'Stanley Tool Kit', price: 2500, unit: 'set', minOrder: 1, image: 'https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=500' },
-      { name: 'Door Lock Set Godrej', price: 850, unit: 'piece', minOrder: 5, image: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=500' },
-      { name: 'Tower Bolt Heavy Duty', price: 180, unit: 'piece', minOrder: 10, image: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=500' },
-      { name: 'Measuring Tape 5m', price: 120, unit: 'piece', minOrder: 5, image: 'https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=500' }
-    ],
-    'Roofing Materials': [
+      { name: 'Teak Wood Door', price: 18000, unit: 'piece', minOrder: 1, image: 'https://images.unsplash.com/photo-1563298723-dcfebaa392e3?w=500' },
       { name: 'GI Roofing Sheet 26 Gauge', price: 480, unit: 'sqft', minOrder: 100, image: 'https://images.unsplash.com/photo-1584445584400-0a35aaa6e616?w=500' },
-      { name: 'Color Coated Sheet', price: 550, unit: 'sqft', minOrder: 100, image: 'https://images.unsplash.com/photo-1565008576549-57569a49371d?w=500' },
-      { name: 'Polycarbonate Sheet', price: 850, unit: 'sqft', minOrder: 50, image: 'https://images.unsplash.com/photo-1584445584400-0a35aaa6e616?w=500' },
-      { name: 'Dr Fixit Waterproofing', price: 3200, unit: '20L', minOrder: 1, image: 'https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=500' },
-      { name: 'Bitumen Sheet', price: 380, unit: 'sqm', minOrder: 50, image: 'https://images.unsplash.com/photo-1565008576549-57569a49371d?w=500' }
-    ],
-    'Plywood & Timber': [
       { name: 'Century Plywood 18mm', price: 85, unit: 'sqft', minOrder: 50, image: 'https://images.unsplash.com/photo-1563453392212-326f5e854473?w=500' },
-      { name: 'Greenply MR Plywood', price: 78, unit: 'sqft', minOrder: 50, image: 'https://images.unsplash.com/photo-1563453392212-326f5e854473?w=500' },
-      { name: 'Teak Wood Timber', price: 2800, unit: 'cft', minOrder: 10, image: 'https://images.unsplash.com/photo-1563453392212-326f5e854473?w=500' },
-      { name: 'MDF Board 18mm', price: 65, unit: 'sqft', minOrder: 50, image: 'https://images.unsplash.com/photo-1563453392212-326f5e854473?w=500' },
-      { name: 'Sunmica Laminate', price: 450, unit: 'sheet', minOrder: 10, image: 'https://images.unsplash.com/photo-1563453392212-326f5e854473?w=500' }
+      { name: 'CPVC Pipes 1/2 inch', price: 85, unit: 'meter', minOrder: 10, image: 'https://images.unsplash.com/photo-1607400201515-c2c41c07c2f0?w=500' },
+      { name: 'Anchor Roma Switches', price: 85, unit: 'piece', minOrder: 10, image: 'https://images.unsplash.com/photo-1621905252507-b35492cc74b4?w=500' }
     ]
   };
 
-  // Map category names to Product enum values
-  const categoryMapping = {
-    'Cement': 'Cement',
-    'Steel & TMT Bars': 'Steel',
-    'Bricks & Blocks': 'Bricks',
-    'Sand & Aggregates': 'Sand',
-    'Paint & Putty': 'Paint',
-    'Tiles & Flooring': 'Tiles',
-    'Plumbing Materials': 'Other',
-    'Electrical Items': 'Other',
-    'Hardware & Tools': 'Other',
-    'Roofing Materials': 'Other',
-    'Plywood & Timber': 'Other',
-    'Glass & Mirrors': 'Other'
-  };
-
+  // Category names now directly match Product enum - no mapping needed
   categories.forEach(category => {
     const templates = productTemplates[category.name] || [];
-    const productCategory = categoryMapping[category.name] || 'Other';
+    const productCategory = category.name;
 
     templates.forEach(template => {
       // Create product for random distributors (2-5 per product)
