@@ -62,10 +62,21 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
   const pageNum = Math.max(1, parseInt(page));
   const limitNum = Math.min(100, Math.max(1, parseInt(limit))); // Max 100 items per request for infinite scroll
 
+  // Map frontend sort values to Mongoose sort strings
+  const sortMap = {
+    newest: '-createdAt',
+    oldest: 'createdAt',
+    priceLowToHigh: 'price',
+    priceHighToLow: '-price',
+    nameAZ: 'name',
+    nameZA: '-name',
+  };
+  const sortOption = sortMap[sortBy] || '-createdAt';
+
   const options = {
     page: pageNum,
     limit: limitNum,
-    sort: sortBy || '-createdAt',
+    sort: sortOption,
     populate: [
       { path: 'distributor', select: 'businessName email phone city state' }
     ]
