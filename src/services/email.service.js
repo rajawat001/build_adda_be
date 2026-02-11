@@ -11,7 +11,8 @@ const {
   paymentConfirmationTemplate,
   refundNotificationTemplate,
   newReviewNotificationTemplate,
-  orderCancelledDistributorTemplate
+  orderCancelledDistributorTemplate,
+  contactReplyTemplate
 } = require('../utils/emailTemplates');
 
 /**
@@ -189,6 +190,14 @@ const sendOrderCancelledToDistributor = async (order, distributor) => {
   return sendEmail(distributor.email, `Order Cancelled - ${order.orderNumber}`, html);
 };
 
+/**
+ * Send reply to a contact form message
+ */
+const sendContactReplyEmail = async (contact, adminReply, subjectLabel, originalMessage) => {
+  const html = contactReplyTemplate(contact.name, originalMessage || '', adminReply, subjectLabel);
+  return sendEmail(contact.email, `Re: ${subjectLabel} - BuildAdda`, html);
+};
+
 module.exports = {
   sendEmail,
   sendOTPEmail,
@@ -203,5 +212,6 @@ module.exports = {
   sendPaymentConfirmationEmail,
   sendRefundNotificationEmail,
   sendNewReviewNotificationEmail,
-  sendOrderCancelledToDistributor
+  sendOrderCancelledToDistributor,
+  sendContactReplyEmail
 };

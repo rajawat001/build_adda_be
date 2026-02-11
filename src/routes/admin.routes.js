@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/admin.controller');
 const adminSubscriptionController = require('../controllers/adminSubscription.controller');
+const contactController = require('../controllers/contact.controller');
 const authMiddleware = require('../middleware/auth.middleware');
 const roleMiddleware = require('../middleware/role.middleware');
 
@@ -84,5 +85,12 @@ router.get('/invoices', adminSubscriptionController.getAllInvoices);
 router.get('/invoices/:invoiceId', adminSubscriptionController.getInvoice);
 router.get('/distributors/:distributorId/invoices', adminSubscriptionController.getDistributorInvoices);
 router.post('/subscriptions/:subscriptionId/generate-invoice', adminSubscriptionController.regenerateInvoice);
+
+// Contact messages management
+router.get('/contacts/stats', contactController.getContactStats);
+router.get('/contacts', contactController.getAllContacts);
+router.patch('/contacts/:id', contactController.updateContactStatus);
+router.post('/contacts/:id/reply', contactController.replyToContact);
+router.delete('/contacts/:id', contactController.deleteContact);
 
 module.exports = router;

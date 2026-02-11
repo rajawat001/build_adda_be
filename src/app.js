@@ -159,6 +159,7 @@ app.use('/api/distributor', require('./routes/distributor.routes'));
 app.use('/api/notifications', require('./routes/notification.routes'));
 app.use('/api/subscriptions', require('./routes/subscription.routes'));
 app.use('/api/payments', require('./routes/webhook.routes'));
+app.use('/api/contact', require('./routes/contact.routes'));
 
 // Health check endpoint
 app.get('/health', (req, res) => {

@@ -634,6 +634,45 @@ const orderCancelledDistributorTemplate = (order, distributorName) => {
   return baseTemplate(content, `Order ${order.orderNumber} cancelled`);
 };
 
+const contactReplyTemplate = (userName, originalMessage, adminReply, subjectLabel) => {
+  const content = `
+    <div style="text-align:center;">
+      <div style="width:64px;height:64px;margin:0 auto 20px;background:linear-gradient(135deg,#FF6B35,#FFC107);border-radius:50%;display:flex;align-items:center;justify-content:center;">
+        <span style="display:block;width:64px;height:64px;line-height:64px;text-align:center;font-size:28px;">💬</span>
+      </div>
+      <h2 style="margin:0 0 8px;color:#212529;font-size:22px;font-weight:700;">
+        We've Replied to Your Message
+      </h2>
+      <p style="margin:0 0 32px;color:#6c757d;font-size:14px;">
+        Thank you for contacting BuildAdda, ${userName}!
+      </p>
+    </div>
+
+    <!-- Original Message -->
+    <div style="margin-bottom:24px;padding:16px 20px;background:#f8f9fa;border-radius:10px;border-left:4px solid #dee2e6;">
+      <p style="margin:0 0 4px;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Your Message — ${subjectLabel}</p>
+      <p style="margin:0;color:#495057;font-size:14px;line-height:1.6;white-space:pre-wrap;">${originalMessage}</p>
+    </div>
+
+    <!-- Admin Reply -->
+    <div style="margin-bottom:24px;padding:16px 20px;background:#fff3e0;border-radius:10px;border-left:4px solid #FF6B35;">
+      <p style="margin:0 0 4px;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Our Reply</p>
+      <p style="margin:0;color:#212529;font-size:14px;line-height:1.6;white-space:pre-wrap;">${adminReply}</p>
+    </div>
+
+    <div style="text-align:center;margin-top:32px;">
+      <p style="color:#6c757d;font-size:13px;margin:0 0 16px;">
+        If you have further questions, feel free to reply to this email or contact us again.
+      </p>
+      <a href="https://www.buildadda.in/contact" style="display:inline-block;padding:12px 32px;background:linear-gradient(135deg,#FF6B35,#e85d2a);color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">
+        Visit BuildAdda
+      </a>
+    </div>
+  `;
+
+  return baseTemplate(content, `BuildAdda has replied to your ${subjectLabel} inquiry`);
+};
+
 module.exports = {
   baseTemplate,
   otpTemplate,
@@ -648,5 +687,6 @@ module.exports = {
   paymentConfirmationTemplate,
   refundNotificationTemplate,
   newReviewNotificationTemplate,
-  orderCancelledDistributorTemplate
+  orderCancelledDistributorTemplate,
+  contactReplyTemplate
 };
