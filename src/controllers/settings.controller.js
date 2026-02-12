@@ -56,7 +56,10 @@ exports.getSettings = async (req, res) => {
         maintenanceMode: false,
         debugMode: false,
         cacheEnabled: true,
-        apiRateLimit: 100
+        apiRateLimit: 100,
+
+        // Service Areas
+        serviceAreas: [{ state: 'Rajasthan', cities: ['Jaipur'] }]
       });
     }
 
@@ -101,6 +104,30 @@ exports.updateSettings = async (req, res) => {
         success: false,
         message: 'API rate limit must be at least 10 requests per 15 minutes'
       });
+    }
+
+    // Validate serviceAreas if provided
+    if (settingsData.serviceAreas) {
+      if (!Array.isArray(settingsData.serviceAreas)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Service areas must be an array'
+        });
+      }
+      for (const area of settingsData.serviceAreas) {
+        if (!area.state || typeof area.state !== 'string') {
+          return res.status(400).json({
+            success: false,
+            message: 'Each service area must have a valid state name'
+          });
+        }
+        if (!Array.isArray(area.cities)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Each service area must have a cities array'
+          });
+        }
+      }
     }
 
     // Get existing settings
@@ -186,7 +213,10 @@ exports.resetSettings = async (req, res) => {
       maintenanceMode: false,
       debugMode: false,
       cacheEnabled: true,
-      apiRateLimit: 100
+      apiRateLimit: 100,
+
+      // Service Areas
+      serviceAreas: [{ state: 'Rajasthan', cities: ['Jaipur'] }]
     };
 
     let settings = await Settings.findOne();
@@ -274,7 +304,8 @@ exports.getPublicSettings = async (req, res) => {
           codEnabled: true,
           minOrderAmount: 500,
           freeShippingThreshold: 1000,
-          maintenanceMode: false
+          maintenanceMode: false,
+          serviceAreas: [{ state: 'Rajasthan', cities: ['Jaipur'] }]
         }
       });
     }
@@ -293,7 +324,8 @@ exports.getPublicSettings = async (req, res) => {
         minOrderAmount: settings.minOrderAmount,
         freeShippingThreshold: settings.freeShippingThreshold,
         defaultShippingCharge: settings.defaultShippingCharge,
-        maintenanceMode: settings.maintenanceMode
+        maintenanceMode: settings.maintenanceMode,
+        serviceAreas: settings.serviceAreas || [{ state: 'Rajasthan', cities: ['Jaipur'] }]
       }
     });
   } catch (error) {

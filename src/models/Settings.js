@@ -205,6 +205,15 @@ const settingsSchema = new mongoose.Schema({
     min: 10
   },
 
+  // Service Areas (delivery cities & states)
+  serviceAreas: {
+    type: [{
+      state: { type: String, required: true },
+      cities: { type: [String], default: [] }
+    }],
+    default: [{ state: 'Rajasthan', cities: ['Jaipur'] }]
+  },
+
   // Metadata
   lastUpdated: {
     type: Date,
