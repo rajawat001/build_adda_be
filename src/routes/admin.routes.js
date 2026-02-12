@@ -20,6 +20,9 @@ router.get('/analytics/users', adminController.getUserGrowthAnalytics);
 router.get('/analytics/orders', adminController.getOrderAnalytics);
 router.get('/analytics/categories', adminController.getCategoryPerformance);
 
+// Global search
+router.get('/search', adminController.globalSearch);
+
 // User management
 router.get('/users', adminController.getAllUsers);
 router.get('/users/stats', adminController.getUserStats);

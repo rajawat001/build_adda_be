@@ -64,12 +64,14 @@ exports.getAllUsers = asyncHandler(async (req, res) => {
 
   const filter = { role: 'user' };
 
-  // Search by name or email
+  // Search by name, email, or phone
   if (search && search.trim()) {
-    const searchRegex = new RegExp(search.trim(), 'i');
+    const escapedSearch = search.trim().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+    const searchRegex = new RegExp(escapedSearch, 'i');
     filter.$or = [
       { name: searchRegex },
-      { email: searchRegex }
+      { email: searchRegex },
+      { phone: searchRegex }
     ];
   }
 
@@ -169,12 +171,16 @@ exports.getAllDistributors = asyncHandler(async (req, res) => {
     filter.isApproved = isApproved === 'true';
   }
 
-  // Search by business name or email
+  // Search by business name, owner name, email, phone, or city
   if (search && search.trim()) {
-    const searchRegex = new RegExp(search.trim(), 'i');
+    const escapedSearch = search.trim().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+    const searchRegex = new RegExp(escapedSearch, 'i');
     filter.$or = [
       { businessName: searchRegex },
-      { email: searchRegex }
+      { name: searchRegex },
+      { email: searchRegex },
+      { phone: searchRegex },
+      { city: searchRegex }
     ];
   }
 
@@ -708,7 +714,7 @@ exports.getTransactionReports = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/orders
 // @access  Private (Admin only)
 exports.getAllOrders = asyncHandler(async (req, res) => {
-  const { orderStatus, paymentStatus, page = 1, limit = 20 } = req.query;
+  const { orderStatus, paymentStatus, search, page = 1, limit = 20 } = req.query;
 
   // Validate and limit pagination
   const pageNum = Math.max(1, parseInt(page));
@@ -730,6 +736,17 @@ exports.getAllOrders = asyncHandler(async (req, res) => {
     if (validPaymentStatuses.includes(paymentStatus)) {
       filter.paymentStatus = paymentStatus;
     }
+  }
+
+  // Search by order number, guest email, or shipping address fields
+  if (search && search.trim()) {
+    const searchRegex = new RegExp(search.trim().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&'), 'i');
+    filter.$or = [
+      { orderNumber: searchRegex },
+      { guestEmail: searchRegex },
+      { 'shippingAddress.fullName': searchRegex },
+      { 'shippingAddress.phone': searchRegex }
+    ];
   }
 
   const orders = await Order.find(filter)
@@ -1672,6 +1689,69 @@ exports.getCouponStats = asyncHandler(async (req, res) => {
       totalDiscount
     }
   });
+});
+
+// @desc    Global search across users, distributors, orders, products
+// @route   GET /api/admin/search
+// @access  Private (Admin only)
+exports.globalSearch = asyncHandler(async (req, res) => {
+  const { q } = req.query;
+
+  if (!q || !q.trim()) {
+    return res.json({ success: true, users: [], distributors: [], orders: [], products: [] });
+  }
+
+  const escapedQuery = q.trim().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+  const searchRegex = new RegExp(escapedQuery, 'i');
+
+  const [users, distributors, orders, products] = await Promise.all([
+    User.find({
+      role: 'user',
+      $or: [
+        { name: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex }
+      ]
+    })
+      .select('name email phone isActive')
+      .limit(5),
+
+    Distributor.find({
+      $or: [
+        { businessName: searchRegex },
+        { name: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex },
+        { city: searchRegex }
+      ]
+    })
+      .select('businessName name email phone city isApproved')
+      .limit(5),
+
+    Order.find({
+      $or: [
+        { orderNumber: searchRegex },
+        { guestEmail: searchRegex },
+        { 'shippingAddress.fullName': searchRegex },
+        { 'shippingAddress.phone': searchRegex }
+      ]
+    })
+      .select('orderNumber totalAmount orderStatus createdAt')
+      .populate('user', 'name email')
+      .limit(5),
+
+    Product.find({
+      $or: [
+        { name: searchRegex },
+        { brand: searchRegex },
+        { manufacturer: searchRegex }
+      ]
+    })
+      .select('name price category brand isActive')
+      .limit(5)
+  ]);
+
+  res.json({ success: true, users, distributors, orders, products });
 });
 
 module.exports = exports;
