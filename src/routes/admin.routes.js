@@ -3,6 +3,7 @@ const router = express.Router();
 const adminController = require('../controllers/admin.controller');
 const adminSubscriptionController = require('../controllers/adminSubscription.controller');
 const contactController = require('../controllers/contact.controller');
+const roleController = require('../controllers/role.controller');
 const authMiddleware = require('../middleware/auth.middleware');
 const roleMiddleware = require('../middleware/role.middleware');
 
@@ -23,12 +24,16 @@ router.get('/analytics/categories', adminController.getCategoryPerformance);
 // Global search
 router.get('/search', adminController.globalSearch);
 
+// Admin users management
+router.get('/admin-users', adminController.getAdminUsers);
+
 // User management
 router.get('/users', adminController.getAllUsers);
 router.get('/users/stats', adminController.getUserStats);
 router.post('/users/bulk-activate', adminController.bulkActivateUsers);
 router.post('/users/bulk-deactivate', adminController.bulkDeactivateUsers);
 router.delete('/users/bulk-delete', adminController.bulkDeleteUsers);
+router.put('/users/:userId/assign-role', roleController.assignRole);
 router.put('/users/:userId', adminController.updateUser);
 router.delete('/users/:userId', adminController.deleteUser);
 
@@ -46,6 +51,7 @@ router.delete('/distributors/:distributorId', adminController.deleteDistributor)
 router.get('/products', adminController.getAllProducts);
 router.get('/products/stats', adminController.getProductStats);
 router.delete('/products/bulk-delete', adminController.bulkDeleteProducts);
+router.put('/products/:productId', adminController.updateProduct);
 router.delete('/products/:productId', adminController.deleteProduct);
 
 // Coupon management

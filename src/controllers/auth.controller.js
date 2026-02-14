@@ -3,8 +3,25 @@ const emailService = require('../services/email.service');
 const User = require('../models/User');
 const Distributor = require('../models/Distributor');
 const Order = require('../models/Order');
+const Role = require('../models/Role');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, NotFoundError, AuthenticationError } = require('../utils/errors');
+
+// Default view-only permissions for admin users without an assigned role
+const DEFAULT_ADMIN_PERMISSIONS = [
+  'users.view',
+  'distributors.view',
+  'products.view',
+  'orders.view',
+  'categories.view',
+  'coupons.view',
+  'subscriptions.view',
+  'reviews.view',
+  'contacts.view',
+  'activityLogs.view',
+  'emailTemplates.view',
+  'settings.view'
+];
 
 // Cookie options based on environment
 const getCookieOptions = (req) => {
@@ -133,8 +150,15 @@ const login = asyncHandler(async (req, res) => {
     user = await Distributor.findOne({ email }).select('+password');
     userRole = 'distributor';
   } else {
-    // FIX: Use the actual role from the database, not hardcoded 'user'
-    userRole = user.role || 'user';
+    // Normalize role — only 'admin' and 'distributor' are valid, everything else is 'user'
+    const dbRole = (user.role || '').toLowerCase().trim();
+    if (dbRole === 'admin' || dbRole.includes('admin')) {
+      userRole = 'admin';
+    } else if (dbRole === 'distributor') {
+      userRole = 'distributor';
+    } else {
+      userRole = 'user';
+    }
   }
 
   if (!user) {
@@ -173,6 +197,17 @@ const login = asyncHandler(async (req, res) => {
   // For distributors, check if approved - allow login but flag for subscription redirect
   const needsSubscription = userRole === 'distributor' && !user.isApproved;
 
+  // Fetch permissions for admin users
+  let permissions = undefined;
+  if (userRole === 'admin') {
+    if (user.assignedRole) {
+      const assignedRole = await Role.findById(user.assignedRole);
+      permissions = assignedRole ? assignedRole.permissions : DEFAULT_ADMIN_PERMISSIONS;
+    } else {
+      permissions = DEFAULT_ADMIN_PERMISSIONS; // Default: view-only for admins without assignedRole
+    }
+  }
+
   res.json({
     success: true,
     message: needsSubscription ? 'Please complete your subscription to activate your account' : 'Login successful',
@@ -183,7 +218,8 @@ const login = asyncHandler(async (req, res) => {
       phone: user.phone,
       role: userRole,
       emailVerified: user.emailVerified,
-      isApproved: userRole === 'distributor' ? user.isApproved : true
+      isApproved: userRole === 'distributor' ? user.isApproved : true,
+      permissions
     },
     needsSubscription
   });
@@ -232,6 +268,17 @@ const getProfile = asyncHandler(async (req, res) => {
       }
     });
   } else {
+    // Fetch permissions for admin users
+    let permissions = undefined;
+    if (user.role === 'admin') {
+      if (user.assignedRole) {
+        const assignedRole = await Role.findById(user.assignedRole);
+        permissions = assignedRole ? assignedRole.permissions : DEFAULT_ADMIN_PERMISSIONS;
+      } else {
+        permissions = DEFAULT_ADMIN_PERMISSIONS; // Default: view-only
+      }
+    }
+
     res.json({
       success: true,
       user: {
@@ -245,7 +292,8 @@ const getProfile = asyncHandler(async (req, res) => {
         cart: user.cart,
         emailVerified: user.emailVerified,
         profileImage: user.profileImage,
-        createdAt: user.createdAt
+        createdAt: user.createdAt,
+        permissions
       }
     });
   }

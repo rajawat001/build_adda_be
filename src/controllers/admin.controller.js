@@ -4,10 +4,44 @@ const Product = require('../models/Product');
 const Order = require('../models/Order');
 const Transaction = require('../models/Transaction');
 const Coupon = require('../models/Coupon');
+const Role = require('../models/Role');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, NotFoundError, ConflictError } = require('../utils/errors');
 const paymentService = require('../services/payment.service');
 const emailService = require('../services/email.service');
+
+// @desc    Get all admin users with their assigned roles
+// @route   GET /api/admin/admin-users
+// @access  Private (Admin only)
+exports.getAdminUsers = asyncHandler(async (req, res) => {
+  const { search } = req.query;
+
+  const filter = { role: 'admin' };
+
+  if (search && search.trim()) {
+    const escapedSearch = search.trim().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+    const searchRegex = new RegExp(escapedSearch, 'i');
+    filter.$or = [
+      { name: searchRegex },
+      { email: searchRegex },
+      { phone: searchRegex }
+    ];
+  }
+
+  const adminUsers = await User.find(filter)
+    .select('-password')
+    .populate('assignedRole', 'name description permissions isActive')
+    .sort('-createdAt');
+
+  const roles = await Role.find({ isActive: true }).sort({ isSystem: -1, name: 1 });
+
+  res.json({
+    success: true,
+    adminUsers,
+    roles,
+    total: adminUsers.length
+  });
+});
 
 // @desc    Get admin dashboard statistics
 // @route   GET /api/admin/stats
@@ -95,17 +129,12 @@ exports.getAllUsers = asyncHandler(async (req, res) => {
   });
 });
 
-// @desc    Update user status
+// @desc    Update user
 // @route   PUT /api/admin/users/:userId
 // @access  Private (Admin only)
 exports.updateUser = asyncHandler(async (req, res) => {
   const { userId } = req.params;
-  const { isActive } = req.body;
-
-  // Validate input
-  if (typeof isActive !== 'boolean') {
-    throw new ValidationError('isActive must be a boolean value');
-  }
+  const { name, email, phone, role, isActive, isVerified } = req.body;
 
   const user = await User.findById(userId).select('-password');
 
@@ -114,17 +143,28 @@ exports.updateUser = asyncHandler(async (req, res) => {
   }
 
   // Prevent admin from deactivating themselves
-  if (req.user._id.toString() === userId && !isActive) {
+  if (req.user._id.toString() === userId && isActive === false) {
     throw new ValidationError('You cannot deactivate your own account');
   }
 
-  // Update only the isActive field (field whitelisting)
-  user.isActive = isActive;
+  // Prevent admin from changing their own role
+  if (req.user._id.toString() === userId && role && role !== user.role) {
+    throw new ValidationError('You cannot change your own role');
+  }
+
+  // Whitelist field updates
+  if (name !== undefined) user.name = name.trim();
+  if (email !== undefined) user.email = email.trim().toLowerCase();
+  if (phone !== undefined) user.phone = phone;
+  if (role !== undefined && ['user', 'admin'].includes(role)) user.role = role;
+  if (typeof isActive === 'boolean') user.isActive = isActive;
+  if (typeof isVerified === 'boolean') user.emailVerified = isVerified;
+
   await user.save();
 
   res.json({
     success: true,
-    message: `User ${isActive ? 'activated' : 'deactivated'} successfully`,
+    message: 'User updated successfully',
     user
   });
 });
@@ -415,6 +455,38 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
       total,
       pages: Math.ceil(total / limitNum)
     }
+  });
+});
+
+// @desc    Delete product
+// @route   DELETE /api/admin/products/:productId
+// @access  Private (Admin only)
+// @desc    Update product
+// @route   PUT /api/admin/products/:productId
+// @access  Private (Admin only)
+exports.updateProduct = asyncHandler(async (req, res) => {
+  const { productId } = req.params;
+  const { name, description, price, mrp, stockQuantity, isActive } = req.body;
+
+  const product = await Product.findById(productId);
+
+  if (!product) {
+    throw new NotFoundError('Product not found');
+  }
+
+  if (name !== undefined) product.name = name.trim();
+  if (description !== undefined) product.description = description.trim();
+  if (price !== undefined) product.price = parseFloat(price);
+  if (mrp !== undefined) product.realPrice = parseFloat(mrp) || undefined;
+  if (stockQuantity !== undefined) product.stock = parseInt(stockQuantity);
+  if (typeof isActive === 'boolean') product.isActive = isActive;
+
+  await product.save();
+
+  res.json({
+    success: true,
+    message: 'Product updated successfully',
+    product
   });
 });
 

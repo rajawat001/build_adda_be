@@ -71,6 +71,11 @@ const userSchema = new mongoose.Schema({
     enum: ['user', 'distributor', 'admin'],
     default: 'user'
   },
+  assignedRole: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Role',
+    default: null
+  },
   addresses: [addressSchema],
   location: {
     type: {
@@ -153,6 +158,21 @@ userSchema.index({ 'addresses.pincode': 1 });
 // VIRTUAL: Check if account is locked
 userSchema.virtual('isLocked').get(function() {
   return !!(this.lockUntil && this.lockUntil > Date.now());
+});
+
+// PRE-VALIDATE MIDDLEWARE: Normalize role field
+userSchema.pre('validate', function(next) {
+  if (this.role && !['user', 'admin', 'distributor'].includes(this.role)) {
+    const lower = this.role.toLowerCase().trim();
+    if (lower.includes('admin')) {
+      this.role = 'admin';
+    } else if (lower.includes('distributor')) {
+      this.role = 'distributor';
+    } else {
+      this.role = 'user';
+    }
+  }
+  next();
 });
 
 // PRE-SAVE MIDDLEWARE: Hash password if modified

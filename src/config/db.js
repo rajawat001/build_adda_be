@@ -24,6 +24,41 @@ const seedDefaultCategories = async () => {
   }
 };
 
+// Auto-seed default roles and assign Super Admin to primary admin user
+const seedDefaultRolesAndSuperAdmin = async () => {
+  try {
+    const Role = require('../models/Role');
+    const User = require('../models/User');
+
+    // Step 1: Create missing default roles
+    const defaults = Role.getDefaultRoles();
+    let created = 0;
+    for (const defaultRole of defaults) {
+      const exists = await Role.findOne({ name: defaultRole.name });
+      if (!exists) {
+        await Role.create(defaultRole);
+        created++;
+      }
+    }
+    if (created > 0) {
+      console.log(`Auto-seeded ${created} default role(s)`);
+    }
+
+    // Step 2: Assign Super Admin to hrajawat1404@gmail.com (only if no assignedRole yet)
+    const primaryAdmin = await User.findOne({ email: 'hrajawat1404@gmail.com' });
+    if (primaryAdmin && primaryAdmin.role === 'admin' && !primaryAdmin.assignedRole) {
+      const superAdminRole = await Role.findOne({ name: 'Super Admin' });
+      if (superAdminRole) {
+        primaryAdmin.assignedRole = superAdminRole._id;
+        await primaryAdmin.save();
+        console.log('Auto-assigned Super Admin role to hrajawat1404@gmail.com');
+      }
+    }
+  } catch (error) {
+    console.error('Role auto-seed error:', error.message);
+  }
+};
+
 const connectDB = async () => {
   try {
     const conn = await mongoose.connect(process.env.MONGODB_URI, {
@@ -33,8 +68,9 @@ const connectDB = async () => {
 
     console.log(`MongoDB Connected: ${conn.connection.host}`);
 
-    // Auto-seed categories after DB connection
+    // Auto-seed after DB connection
     await seedDefaultCategories();
+    await seedDefaultRolesAndSuperAdmin();
   } catch (error) {
     console.error(`Error: ${error.message}`);
     process.exit(1);

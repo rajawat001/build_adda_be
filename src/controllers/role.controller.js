@@ -1,274 +1,291 @@
 const Role = require('../models/Role');
 const User = require('../models/User');
+const Distributor = require('../models/Distributor');
+const asyncHandler = require('../utils/asyncHandler');
+const { ValidationError, NotFoundError, ConflictError } = require('../utils/errors');
+
+// Helper: Map a Role name to its matching User.role string(s)
+// User.role is an enum: 'user' | 'admin' | 'distributor'
+const getRoleUserMapping = (roleName) => {
+  const lower = roleName.toLowerCase();
+  if (lower === 'super admin' || lower === 'admin') return ['admin'];
+  if (lower === 'user' || lower === 'customer') return ['user'];
+  if (lower === 'distributor') return ['distributor'];
+  // Manager, Support, and custom roles — no direct User.role mapping
+  return [];
+};
+
+// Helper: Seed default roles — creates missing system roles
+const seedDefaultRoles = async () => {
+  const defaults = Role.getDefaultRoles();
+  for (const defaultRole of defaults) {
+    const exists = await Role.findOne({ name: defaultRole.name });
+    if (!exists) {
+      await Role.create(defaultRole);
+    }
+  }
+};
 
 // @desc    Get all roles
 // @route   GET /api/admin/roles
-// @access  Private/Admin
-exports.getAllRoles = async (req, res) => {
-  try {
-    const { includeInactive } = req.query;
+// @access  Private (Admin only)
+exports.getAllRoles = asyncHandler(async (req, res) => {
+  // Auto-seed default roles on first access
+  await seedDefaultRoles();
 
-    const filter = {};
-    if (includeInactive !== 'true') {
-      filter.isActive = true;
-    }
+  const roles = await Role.find().sort({ isSystem: -1, createdAt: -1 });
 
-    const roles = await Role.find(filter).sort({ createdAt: -1 });
+  // Get user counts — batch query for performance
+  const [adminCount, userCount, distributorCount] = await Promise.all([
+    User.countDocuments({ role: 'admin' }),
+    User.countDocuments({ role: 'user' }),
+    Distributor.countDocuments()
+  ]);
 
-    // Get user count for each role
-    const rolesWithCounts = await Promise.all(
-      roles.map(async (role) => {
-        const userCount = await User.countDocuments({ role: role._id });
-        return {
-          ...role.toObject(),
-          userCount
-        };
-      })
-    );
+  const countMap = { admin: adminCount, user: userCount, distributor: distributorCount };
 
-    res.json({
-      success: true,
-      roles: rolesWithCounts,
-      count: rolesWithCounts.length
-    });
-  } catch (error) {
-    console.error('Get roles error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch roles',
-      error: error.message
-    });
-  }
-};
+  const rolesWithCounts = roles.map((role) => {
+    const mappedRoles = getRoleUserMapping(role.name);
+    const total = mappedRoles.reduce((sum, r) => sum + (countMap[r] || 0), 0);
+    return {
+      ...role.toObject(),
+      userCount: total
+    };
+  });
+
+  res.json({
+    success: true,
+    roles: rolesWithCounts,
+    count: rolesWithCounts.length
+  });
+});
 
 // @desc    Get single role by ID
 // @route   GET /api/admin/roles/:id
-// @access  Private/Admin
-exports.getRoleById = async (req, res) => {
-  try {
-    const role = await Role.findById(req.params.id);
+// @access  Private (Admin only)
+exports.getRoleById = asyncHandler(async (req, res) => {
+  const role = await Role.findById(req.params.id);
 
-    if (!role) {
-      return res.status(404).json({
-        success: false,
-        message: 'Role not found'
-      });
-    }
-
-    // Get user count
-    const userCount = await User.countDocuments({ role: role._id });
-
-    res.json({
-      success: true,
-      role: {
-        ...role.toObject(),
-        userCount
-      }
-    });
-  } catch (error) {
-    console.error('Get role error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch role',
-      error: error.message
-    });
+  if (!role) {
+    throw new NotFoundError('Role not found');
   }
-};
+
+  const mappedRoles = getRoleUserMapping(role.name);
+  let userCount = 0;
+  for (const r of mappedRoles) {
+    if (r === 'distributor') {
+      userCount += await Distributor.countDocuments();
+    } else {
+      userCount += await User.countDocuments({ role: r });
+    }
+  }
+
+  res.json({
+    success: true,
+    role: {
+      ...role.toObject(),
+      userCount
+    }
+  });
+});
 
 // @desc    Create new role
 // @route   POST /api/admin/roles
-// @access  Private/Admin
-exports.createRole = async (req, res) => {
-  try {
-    const { name, description, permissions, isActive } = req.body;
+// @access  Private (Admin only)
+exports.createRole = asyncHandler(async (req, res) => {
+  const { name, description, permissions, isActive } = req.body;
 
-    // Validate required fields
-    if (!name) {
-      return res.status(400).json({
-        success: false,
-        message: 'Role name is required'
-      });
-    }
-
-    // Check if role with same name already exists
-    const existingRole = await Role.findOne({ name });
-    if (existingRole) {
-      return res.status(400).json({
-        success: false,
-        message: 'Role with this name already exists'
-      });
-    }
-
-    // Create role
-    const role = await Role.create({
-      name,
-      description,
-      permissions: permissions || [],
-      isActive: isActive !== undefined ? isActive : true,
-      createdBy: req.user._id
-    });
-
-    res.status(201).json({
-      success: true,
-      message: 'Role created successfully',
-      role
-    });
-  } catch (error) {
-    console.error('Create role error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create role',
-      error: error.message
-    });
+  if (!name || !name.trim()) {
+    throw new ValidationError('Role name is required');
   }
-};
+
+  const existingRole = await Role.findOne({ name: name.trim() });
+  if (existingRole) {
+    throw new ConflictError('Role with this name already exists');
+  }
+
+  const role = await Role.create({
+    name: name.trim(),
+    description: description || '',
+    permissions: permissions || [],
+    isActive: isActive !== undefined ? isActive : true,
+    createdBy: req.user._id
+  });
+
+  res.status(201).json({
+    success: true,
+    message: 'Role created successfully',
+    role
+  });
+});
 
 // @desc    Update role
 // @route   PUT /api/admin/roles/:id
-// @access  Private/Admin
-exports.updateRole = async (req, res) => {
-  try {
-    const { name, description, permissions, isActive } = req.body;
+// @access  Private (Admin only)
+exports.updateRole = asyncHandler(async (req, res) => {
+  const { name, description, permissions, isActive } = req.body;
 
-    const role = await Role.findById(req.params.id);
+  const role = await Role.findById(req.params.id);
 
-    if (!role) {
-      return res.status(404).json({
-        success: false,
-        message: 'Role not found'
-      });
-    }
-
-    // Check if updating name and if it conflicts with existing role
-    if (name && name !== role.name) {
-      const existingRole = await Role.findOne({ name });
-      if (existingRole) {
-        return res.status(400).json({
-          success: false,
-          message: 'Role with this name already exists'
-        });
-      }
-    }
-
-    // Update fields
-    if (name) role.name = name;
-    if (description !== undefined) role.description = description;
-    if (permissions !== undefined) role.permissions = permissions;
-    if (isActive !== undefined) role.isActive = isActive;
-
-    await role.save();
-
-    res.json({
-      success: true,
-      message: 'Role updated successfully',
-      role
-    });
-  } catch (error) {
-    console.error('Update role error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update role',
-      error: error.message
-    });
+  if (!role) {
+    throw new NotFoundError('Role not found');
   }
-};
+
+  // Check name uniqueness if changing
+  if (name && name.trim() !== role.name) {
+    const existingRole = await Role.findOne({ name: name.trim() });
+    if (existingRole) {
+      throw new ConflictError('Role with this name already exists');
+    }
+    role.name = name.trim();
+  }
+
+  if (description !== undefined) role.description = description;
+  if (permissions !== undefined) role.permissions = permissions;
+  if (isActive !== undefined) role.isActive = isActive;
+
+  await role.save();
+
+  res.json({
+    success: true,
+    message: 'Role updated successfully',
+    role
+  });
+});
 
 // @desc    Delete role
 // @route   DELETE /api/admin/roles/:id
-// @access  Private/Admin
-exports.deleteRole = async (req, res) => {
-  try {
-    const role = await Role.findById(req.params.id);
+// @access  Private (Admin only)
+exports.deleteRole = asyncHandler(async (req, res) => {
+  const role = await Role.findById(req.params.id);
 
-    if (!role) {
-      return res.status(404).json({
-        success: false,
-        message: 'Role not found'
-      });
-    }
-
-    // Check if role is assigned to any users
-    const userCount = await User.countDocuments({ role: role._id });
-    if (userCount > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot delete role with ${userCount} assigned user(s). Please reassign users first.`
-      });
-    }
-
-    await role.deleteOne();
-
-    res.json({
-      success: true,
-      message: 'Role deleted successfully'
-    });
-  } catch (error) {
-    console.error('Delete role error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to delete role',
-      error: error.message
-    });
+  if (!role) {
+    throw new NotFoundError('Role not found');
   }
-};
+
+  if (role.isSystem) {
+    throw new ValidationError('Cannot delete system role');
+  }
+
+  // Check if role name maps to any users
+  const mappedRoles = getRoleUserMapping(role.name);
+  let userCount = 0;
+  for (const r of mappedRoles) {
+    if (r === 'distributor') {
+      userCount += await Distributor.countDocuments();
+    } else {
+      userCount += await User.countDocuments({ role: r });
+    }
+  }
+
+  if (userCount > 0) {
+    throw new ValidationError(
+      `Cannot delete role with ${userCount} assigned user(s). Please reassign users first.`
+    );
+  }
+
+  await role.deleteOne();
+
+  res.json({
+    success: true,
+    message: 'Role deleted successfully'
+  });
+});
 
 // @desc    Get role statistics
 // @route   GET /api/admin/roles/stats
-// @access  Private/Admin
-exports.getRoleStats = async (req, res) => {
-  try {
-    const totalRoles = await Role.countDocuments();
-    const activeRoles = await Role.countDocuments({ isActive: true });
+// @access  Private (Admin only)
+exports.getRoleStats = asyncHandler(async (req, res) => {
+  // Auto-seed default roles on first access
+  await seedDefaultRoles();
 
-    // Get total users with roles
-    const totalUsers = await User.countDocuments({ role: { $exists: true, $ne: null } });
+  const [totalRoles, activeRoles, totalAdmins, totalUsers, totalDistributors] = await Promise.all([
+    Role.countDocuments(),
+    Role.countDocuments({ isActive: true }),
+    User.countDocuments({ role: 'admin' }),
+    User.countDocuments({ role: 'user' }),
+    Distributor.countDocuments()
+  ]);
 
-    res.json({
-      success: true,
-      stats: {
-        total: totalRoles,
-        active: activeRoles,
-        totalUsers
-      }
-    });
-  } catch (error) {
-    console.error('Get role stats error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch role statistics',
-      error: error.message
-    });
+  res.json({
+    success: true,
+    stats: {
+      total: totalRoles,
+      active: activeRoles,
+      totalUsers: totalAdmins + totalUsers + totalDistributors
+    }
+  });
+});
+
+// @desc    Assign a role to an admin user
+// @route   PUT /api/admin/users/:userId/assign-role
+// @access  Private (Admin only)
+exports.assignRole = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const { roleId } = req.body;
+
+  if (!roleId) {
+    throw new ValidationError('roleId is required');
   }
-};
+
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new NotFoundError('User not found');
+  }
+
+  if (user.role !== 'admin') {
+    throw new ValidationError('Roles can only be assigned to admin users');
+  }
+
+  const role = await Role.findById(roleId);
+  if (!role) {
+    throw new NotFoundError('Role not found');
+  }
+
+  user.assignedRole = roleId;
+  await user.save();
+
+  res.json({
+    success: true,
+    message: `Role "${role.name}" assigned to user "${user.name}" successfully`,
+    user: {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      assignedRole: role
+    }
+  });
+});
 
 // @desc    Check if user has permission
 // @route   POST /api/admin/roles/check-permission
-// @access  Private/Admin
-exports.checkPermission = async (req, res) => {
-  try {
-    const { userId, permission } = req.body;
+// @access  Private (Admin only)
+exports.checkPermission = asyncHandler(async (req, res) => {
+  const { userId, permission } = req.body;
 
-    const user = await User.findById(userId).populate('role');
-
-    if (!user || !user.role) {
-      return res.json({
-        success: true,
-        hasPermission: false
-      });
-    }
-
-    const hasPermission = user.role.hasPermission(permission);
-
-    res.json({
-      success: true,
-      hasPermission
-    });
-  } catch (error) {
-    console.error('Check permission error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to check permission',
-      error: error.message
-    });
+  if (!userId || !permission) {
+    throw new ValidationError('userId and permission are required');
   }
-};
+
+  // Since User.role is a string, find Role by matching name
+  const user = await User.findById(userId).select('role');
+
+  if (!user) {
+    return res.json({ success: true, hasPermission: false });
+  }
+
+  // Find a role that maps to this user's role string
+  const roles = await Role.find({ isActive: true });
+  const matchingRole = roles.find((r) => {
+    const mapped = getRoleUserMapping(r.name);
+    return mapped.includes(user.role);
+  });
+
+  if (!matchingRole) {
+    return res.json({ success: true, hasPermission: false });
+  }
+
+  const hasPermission = matchingRole.hasPermission(permission);
+
+  res.json({ success: true, hasPermission });
+});

@@ -27,7 +27,9 @@ const roleSchema = new mongoose.Schema({
           'settings.view', 'settings.edit',
           'reviews.view', 'reviews.approve', 'reviews.delete',
           'activityLogs.view',
-          'emailTemplates.view', 'emailTemplates.edit'
+          'emailTemplates.view', 'emailTemplates.edit',
+          'contacts.view', 'contacts.reply', 'contacts.delete',
+          'subscriptions.view', 'subscriptions.edit'
         ];
 
         return permissions.every(perm =>
@@ -106,36 +108,77 @@ roleSchema.statics.getDefaultRoles = function() {
         'categories.view', 'categories.create', 'categories.edit', 'categories.delete',
         'coupons.view', 'coupons.create', 'coupons.edit', 'coupons.delete',
         'reviews.view', 'reviews.approve', 'reviews.delete',
-        'activityLogs.view'
+        'activityLogs.view',
+        'settings.view', 'settings.edit',
+        'emailTemplates.view', 'emailTemplates.edit',
+        'contacts.view', 'contacts.reply', 'contacts.delete',
+        'subscriptions.view', 'subscriptions.edit'
       ],
-      description: 'Standard admin access for most operations',
+      description: 'Standard admin access — all permissions except role management',
       isActive: true,
       isSystem: true
     },
     {
-      name: 'Manager',
+      name: 'Catalog Manager',
       permissions: [
-        'users.view',
-        'distributors.view',
-        'products.view', 'products.edit',
-        'orders.view', 'orders.edit',
-        'coupons.view', 'coupons.create', 'coupons.edit',
-        'reviews.view', 'reviews.approve'
+        'products.view', 'products.edit', 'products.delete',
+        'categories.view', 'categories.create', 'categories.edit', 'categories.delete',
+        'reviews.view', 'reviews.approve', 'reviews.delete'
       ],
-      description: 'Manager access for operations and content management',
+      description: 'Product and catalog management',
+      isActive: true,
+      isSystem: true
+    },
+    {
+      name: 'Order Manager',
+      permissions: [
+        'orders.view', 'orders.edit', 'orders.refund',
+        'coupons.view', 'coupons.create', 'coupons.edit', 'coupons.delete',
+        'users.view'
+      ],
+      description: 'Order processing and coupon management',
+      isActive: true,
+      isSystem: true
+    },
+    {
+      name: 'Review Manager',
+      permissions: [
+        'reviews.view', 'reviews.approve', 'reviews.delete',
+        'products.view'
+      ],
+      description: 'Review moderation',
       isActive: true,
       isSystem: true
     },
     {
       name: 'Support',
       permissions: [
+        'contacts.view', 'contacts.reply', 'contacts.delete',
+        'users.view',
+        'orders.view',
+        'reviews.view'
+      ],
+      description: 'Customer support — view orders, users, and manage messages',
+      isActive: true,
+      isSystem: true
+    },
+    {
+      name: 'View Only',
+      permissions: [
         'users.view',
         'distributors.view',
         'products.view',
         'orders.view',
-        'reviews.view'
+        'categories.view',
+        'coupons.view',
+        'subscriptions.view',
+        'reviews.view',
+        'contacts.view',
+        'activityLogs.view',
+        'emailTemplates.view',
+        'settings.view'
       ],
-      description: 'Support team access for viewing and assisting customers',
+      description: 'Read-only access — can view all pages but cannot edit or delete',
       isActive: true,
       isSystem: true
     }
