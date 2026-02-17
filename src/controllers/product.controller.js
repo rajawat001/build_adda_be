@@ -61,6 +61,8 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
   }
 
   // Location-based filtering: find nearby distributors, then filter products
+  // Strategy: try $geoNear for distributors with coordinates, ALWAYS also match
+  // by pincode/city since many distributors may not have geo coordinates set.
   let distributorDistanceMap = new Map();
   let locationFiltered = false;
 
@@ -71,56 +73,67 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
 
     if (!isNaN(parsedLat) && !isNaN(parsedLng)) {
       locationFiltered = true;
+      const nearbyIds = [];
 
-      // Find distributors with coordinates within radius
-      const nearbyDistributors = await Distributor.aggregate([
-        {
-          $geoNear: {
-            near: { type: 'Point', coordinates: [parsedLng, parsedLat] },
-            distanceField: 'dist',
-            maxDistance: maxDistanceMeters,
-            spherical: true,
-            query: { isApproved: true, isActive: true }
-          }
-        },
-        { $project: { _id: 1, dist: { $divide: ['$dist', 1000] } } }
-      ]);
+      // 1) Try $geoNear for distributors that have coordinates
+      try {
+        const geoDistributors = await Distributor.aggregate([
+          {
+            $geoNear: {
+              near: { type: 'Point', coordinates: [parsedLng, parsedLat] },
+              distanceField: 'dist',
+              maxDistance: maxDistanceMeters,
+              spherical: true,
+              query: { isApproved: true, isActive: true }
+            }
+          },
+          { $project: { _id: 1, dist: { $divide: ['$dist', 1000] } } }
+        ]);
+        geoDistributors.forEach(d => {
+          nearbyIds.push(d._id);
+          distributorDistanceMap.set(d._id.toString(), d.dist);
+        });
+      } catch (geoErr) {
+        // $geoNear can fail if no documents have a 2dsphere index — ignore
+      }
 
-      const nearbyIds = nearbyDistributors.map(d => d._id);
-      nearbyDistributors.forEach(d => distributorDistanceMap.set(d._id.toString(), d.dist));
-
-      // Also include distributors matching by pincode who have no coordinates
+      // 2) Also find distributors by pincode match (covers those without coordinates)
       if (locationPincode) {
         const pincodeDistributors = await Distributor.find({
           pincode: locationPincode,
           isApproved: true,
-          isActive: true,
-          $or: [
-            { 'location.coordinates': { $exists: false } },
-            { 'location.coordinates': { $size: 0 } }
-          ]
+          isActive: true
         }).select('_id').lean();
 
         pincodeDistributors.forEach(d => {
           if (!distributorDistanceMap.has(d._id.toString())) {
             nearbyIds.push(d._id);
-            distributorDistanceMap.set(d._id.toString(), 999);
+            distributorDistanceMap.set(d._id.toString(), 0); // same pincode = closest
           }
         });
       }
 
-      if (nearbyIds.length === 0) {
-        return res.json({
-          success: true,
-          products: [],
-          totalPages: 0,
-          currentPage: 1,
-          totalProducts: 0,
-          locationFiltered: true
+      // 3) If still no results, try same region (first 3 digits of pincode)
+      if (nearbyIds.length === 0 && locationPincode && /^\d{6}$/.test(locationPincode)) {
+        const pincodePrefix = locationPincode.substring(0, 3);
+        const regionDistributors = await Distributor.find({
+          pincode: { $regex: `^${pincodePrefix}` },
+          isApproved: true,
+          isActive: true
+        }).select('_id').lean();
+
+        regionDistributors.forEach(d => {
+          if (!distributorDistanceMap.has(d._id.toString())) {
+            nearbyIds.push(d._id);
+            distributorDistanceMap.set(d._id.toString(), 10); // region match = moderate distance
+          }
         });
       }
 
-      filters.distributor = { $in: nearbyIds };
+      if (nearbyIds.length > 0) {
+        filters.distributor = { $in: nearbyIds };
+      }
+      // If no distributors found at all, don't filter — show all products as fallback
     }
   } else if (locationPincode && /^\d{6}$/.test(locationPincode)) {
     locationFiltered = true;
@@ -131,19 +144,11 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
       isActive: true
     }).select('_id').lean();
 
-    if (pincodeDistributors.length === 0) {
-      return res.json({
-        success: true,
-        products: [],
-        totalPages: 0,
-        currentPage: 1,
-        totalProducts: 0,
-        locationFiltered: true
-      });
+    if (pincodeDistributors.length > 0) {
+      pincodeDistributors.forEach(d => distributorDistanceMap.set(d._id.toString(), 0));
+      filters.distributor = { $in: pincodeDistributors.map(d => d._id) };
     }
-
-    pincodeDistributors.forEach(d => distributorDistanceMap.set(d._id.toString(), 0));
-    filters.distributor = { $in: pincodeDistributors.map(d => d._id) };
+    // If no match, don't filter — show all products as fallback
   }
 
   // Validate and limit pagination
@@ -174,14 +179,21 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
   // and include their products in the query (since distributor is a ref,
   // we can't regex it in the main $or query)
   if (searchTerm) {
-    const matchingDistributors = await User.find({
-      role: 'distributor',
-      businessName: { $regex: searchTerm, $options: 'i' }
-    }).select('_id');
+    const distributorFilter = {
+      businessName: { $regex: searchTerm, $options: 'i' },
+      isApproved: true,
+      isActive: true
+    };
+
+    // When location filtering is active, only match distributors that are also nearby
+    if (filters.distributor) {
+      distributorFilter._id = filters.distributor;
+    }
+
+    const matchingDistributors = await Distributor.find(distributorFilter).select('_id');
 
     if (matchingDistributors.length > 0) {
       const distributorIds = matchingDistributors.map(d => d._id);
-      // Add distributor match to the existing $or conditions
       filters.$or.push({ distributor: { $in: distributorIds } });
     }
   }
