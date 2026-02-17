@@ -46,9 +46,15 @@ exports.createOrder = asyncHandler(async (req, res) => {
     if (!item.product || !item.quantity) {
       throw new ValidationError('Each item must have product and quantity');
     }
+  }
 
-    // Fetch product to validate price and stock
-    const product = await Product.findById(item.product);
+  // Batch-fetch all products in one query instead of N separate queries
+  const productIds = items.map(item => item.product);
+  const products = await Product.find({ _id: { $in: productIds } }).lean();
+  const productMap = new Map(products.map(p => [p._id.toString(), p]));
+
+  for (const item of items) {
+    const product = productMap.get(item.product.toString());
 
     if (!product) {
       throw new NotFoundError(`Product ${item.product} not found`);
@@ -152,11 +158,20 @@ exports.createOrder = asyncHandler(async (req, res) => {
     emailService.sendNewOrderNotification(order, dist);
   }
 
-  // Check low stock after order
-  for (const item of validatedItems) {
-    const product = await Product.findById(item.product);
-    if (product && product.stock <= 10 && dist) {
-      emailService.sendLowStockAlertEmail(dist, [{ name: product.name, stock: product.stock }]);
+  // Check low stock after order (reuse already-fetched product data)
+  if (dist) {
+    const lowStockItems = validatedItems
+      .filter(item => {
+        const product = productMap.get(item.product.toString());
+        return product && product.stock <= 10;
+      })
+      .map(item => {
+        const product = productMap.get(item.product.toString());
+        return { name: product.name, stock: product.stock };
+      });
+
+    if (lowStockItems.length > 0) {
+      emailService.sendLowStockAlertEmail(dist, lowStockItems);
     }
   }
 

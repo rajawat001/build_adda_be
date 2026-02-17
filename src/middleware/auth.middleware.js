@@ -25,12 +25,13 @@ const protect = async (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Fetch user based on role with password explicitly excluded
+    // Fetch user based on role — select only fields needed for auth checks
+    const authFields = 'name businessName email role phone isActive assignedRole isLocked failedLoginAttempts lastPasswordChange isApproved';
     if (decoded.role === 'distributor') {
-      req.user = await Distributor.findById(decoded.id).select('+password').select('-password');
+      req.user = await Distributor.findById(decoded.id).select(authFields).lean();
       req.userModel = 'Distributor';
     } else {
-      req.user = await User.findById(decoded.id).select('+password').select('-password');
+      req.user = await User.findById(decoded.id).select(authFields).lean();
       req.userModel = 'User';
     }
 

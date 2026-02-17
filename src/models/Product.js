@@ -123,5 +123,7 @@ productSchema.index({ distributor: 1 });
 productSchema.index({ name: 'text', description: 'text' });
 productSchema.index({ brand: 1 });
 productSchema.index({ manufacturer: 1 });
+productSchema.index({ isActive: 1, createdAt: -1 });
+productSchema.index({ price: 1 });
 
 module.exports = mongoose.model('Product', productSchema);

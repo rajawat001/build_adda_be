@@ -41,14 +41,16 @@ class ProductService {
   async getProductsByCategory(categoryId) {
     return await Product.find({ category: categoryId })
       .populate('distributor', 'businessName')
-      .sort('-createdAt');
+      .sort('-createdAt')
+      .lean();
   }
 
   // Get products by distributor
   async getProductsByDistributor(distributorId) {
     return await Product.find({ distributor: distributorId })
       .populate('category', 'name')
-      .sort('-createdAt');
+      .sort('-createdAt')
+      .lean();
   }
 
   // Get all categories
@@ -240,7 +242,8 @@ class ProductService {
     return await Product.find(searchQuery)
       .populate('category', 'name')
       .populate('distributor', 'businessName')
-      .sort('-createdAt');
+      .sort('-createdAt')
+      .lean();
   }
 
   // Get featured products
@@ -249,7 +252,8 @@ class ProductService {
       .populate('category', 'name')
       .populate('distributor', 'businessName')
       .limit(limit)
-      .sort('-createdAt');
+      .sort('-createdAt')
+      .lean();
   }
 
   // Get low stock products (for distributor dashboard)

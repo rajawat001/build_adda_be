@@ -18,19 +18,19 @@ exports.getAllCategories = async (req, res) => {
 
     const categories = await Category.find(filter)
       .populate('parent', 'name slug')
-      .sort({ order: 1, name: 1 });
+      .sort({ order: 1, name: 1 })
+      .lean();
 
-    // Get product counts for each category
-    // NOTE: Product.category is a String enum (e.g. 'Cement'), not an ObjectId reference
-    const categoriesWithCounts = await Promise.all(
-      categories.map(async (category) => {
-        const productCount = await Product.countDocuments({ category: category.name });
-        return {
-          ...category.toObject(),
-          productCount
-        };
-      })
-    );
+    // Get product counts in a single aggregation instead of N separate queries
+    const productCounts = await Product.aggregate([
+      { $group: { _id: '$category', count: { $sum: 1 } } }
+    ]);
+    const countMap = new Map(productCounts.map(c => [c._id, c.count]));
+
+    const categoriesWithCounts = categories.map(category => ({
+      ...category,
+      productCount: countMap.get(category.name) || 0
+    }));
 
     res.json({
       success: true,
@@ -55,7 +55,7 @@ exports.getCategoryTree = async (req, res) => {
     const { includeInactive } = req.query;
 
     const filter = includeInactive === 'true' ? {} : { isActive: true };
-    const categories = await Category.find(filter).sort({ order: 1, name: 1 });
+    const categories = await Category.find(filter).sort({ order: 1, name: 1 }).lean();
 
     // Build tree structure
     const buildTree = (parentId = null) => {
@@ -67,7 +67,7 @@ exports.getCategoryTree = async (req, res) => {
           return cat.parent && cat.parent.toString() === parentId.toString();
         })
         .map(cat => ({
-          ...cat.toObject(),
+          ...cat,
           children: buildTree(cat._id)
         }));
     };
@@ -397,20 +397,19 @@ exports.getCategoryStats = async (req, res) => {
     const inactiveCategories = await Category.countDocuments({ isActive: false });
     const rootCategories = await Category.countDocuments({ parent: null });
 
-    // Get top categories by product count (Product.category is a String enum, not ObjectId)
-    const allCategories = await Category.find();
-    const categoriesWithProducts = await Promise.all(
-      allCategories.map(async (category) => {
-        const productCount = await Product.countDocuments({ category: category.name });
-        return {
-          _id: category._id,
-          name: category.name,
-          productCount
-        };
-      })
-    );
+    // Get top categories by product count in a single aggregation
+    const allCategories = await Category.find().lean();
+    const productCounts = await Product.aggregate([
+      { $group: { _id: '$category', count: { $sum: 1 } } }
+    ]);
+    const countMap = new Map(productCounts.map(c => [c._id, c.count]));
 
-    const topCategories = categoriesWithProducts
+    const topCategories = allCategories
+      .map(category => ({
+        _id: category._id,
+        name: category.name,
+        productCount: countMap.get(category.name) || 0
+      }))
       .sort((a, b) => b.productCount - a.productCount)
       .slice(0, 5);
 

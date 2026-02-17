@@ -1,5 +1,6 @@
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
+const sharp = require('sharp');
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -25,16 +26,24 @@ const upload = multer({
   }
 });
 
-const uploadToCloudinary = (buffer) => {
+const compressImage = async (buffer) => {
+  return sharp(buffer)
+    .resize({ width: 1200, withoutEnlargement: true })
+    .webp({ quality: 80 })
+    .toBuffer();
+};
+
+const uploadToCloudinary = async (buffer) => {
+  const compressed = await compressImage(buffer);
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
-      { folder: 'buildmat' },
+      { folder: 'buildmat', format: 'webp' },
       (error, result) => {
         if (error) reject(error);
         else resolve(result);
       }
     );
-    uploadStream.end(buffer);
+    uploadStream.end(compressed);
   });
 };
 
