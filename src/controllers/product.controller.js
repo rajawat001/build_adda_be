@@ -2,6 +2,7 @@ const productService = require('../services/product.service');
 const Product = require('../models/Product');
 const Category = require('../models/Category');
 const User = require('../models/User');
+const Distributor = require('../models/Distributor');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, NotFoundError } = require('../utils/errors');
 
@@ -14,7 +15,8 @@ const escapeRegex = (text) => {
 // @route   GET /api/products
 // @access  Public
 exports.getAllProducts = asyncHandler(async (req, res) => {
-  const { category, minPrice, maxPrice, search, sortBy, page = 1, limit = 24 } = req.query;
+  const { category, minPrice, maxPrice, search, sortBy, page = 1, limit = 24,
+          lat, lng, pincode: locationPincode, distance = 50 } = req.query;
 
   const filters = {
     isActive: true,
@@ -58,6 +60,92 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
     ];
   }
 
+  // Location-based filtering: find nearby distributors, then filter products
+  let distributorDistanceMap = new Map();
+  let locationFiltered = false;
+
+  if (lat && lng) {
+    const parsedLat = parseFloat(lat);
+    const parsedLng = parseFloat(lng);
+    const maxDistanceMeters = parseFloat(distance) * 1000;
+
+    if (!isNaN(parsedLat) && !isNaN(parsedLng)) {
+      locationFiltered = true;
+
+      // Find distributors with coordinates within radius
+      const nearbyDistributors = await Distributor.aggregate([
+        {
+          $geoNear: {
+            near: { type: 'Point', coordinates: [parsedLng, parsedLat] },
+            distanceField: 'dist',
+            maxDistance: maxDistanceMeters,
+            spherical: true,
+            query: { isApproved: true, isActive: true }
+          }
+        },
+        { $project: { _id: 1, dist: { $divide: ['$dist', 1000] } } }
+      ]);
+
+      const nearbyIds = nearbyDistributors.map(d => d._id);
+      nearbyDistributors.forEach(d => distributorDistanceMap.set(d._id.toString(), d.dist));
+
+      // Also include distributors matching by pincode who have no coordinates
+      if (locationPincode) {
+        const pincodeDistributors = await Distributor.find({
+          pincode: locationPincode,
+          isApproved: true,
+          isActive: true,
+          $or: [
+            { 'location.coordinates': { $exists: false } },
+            { 'location.coordinates': { $size: 0 } }
+          ]
+        }).select('_id').lean();
+
+        pincodeDistributors.forEach(d => {
+          if (!distributorDistanceMap.has(d._id.toString())) {
+            nearbyIds.push(d._id);
+            distributorDistanceMap.set(d._id.toString(), 999);
+          }
+        });
+      }
+
+      if (nearbyIds.length === 0) {
+        return res.json({
+          success: true,
+          products: [],
+          totalPages: 0,
+          currentPage: 1,
+          totalProducts: 0,
+          locationFiltered: true
+        });
+      }
+
+      filters.distributor = { $in: nearbyIds };
+    }
+  } else if (locationPincode && /^\d{6}$/.test(locationPincode)) {
+    locationFiltered = true;
+
+    const pincodeDistributors = await Distributor.find({
+      pincode: locationPincode,
+      isApproved: true,
+      isActive: true
+    }).select('_id').lean();
+
+    if (pincodeDistributors.length === 0) {
+      return res.json({
+        success: true,
+        products: [],
+        totalPages: 0,
+        currentPage: 1,
+        totalProducts: 0,
+        locationFiltered: true
+      });
+    }
+
+    pincodeDistributors.forEach(d => distributorDistanceMap.set(d._id.toString(), 0));
+    filters.distributor = { $in: pincodeDistributors.map(d => d._id) };
+  }
+
   // Validate and limit pagination
   const pageNum = Math.max(1, parseInt(page));
   const limitNum = Math.min(100, Math.max(1, parseInt(limit))); // Max 100 items per request for infinite scroll
@@ -78,7 +166,7 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
     limit: limitNum,
     sort: sortOption,
     populate: [
-      { path: 'distributor', select: 'businessName email phone city state' }
+      { path: 'distributor', select: 'businessName email phone city state pincode' }
     ]
   };
 
@@ -100,9 +188,19 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
 
   let products = await productService.getProducts(filters, options);
 
+  // Sort by distributor distance when location filtering is active
+  if (distributorDistanceMap.size > 0 && products.products) {
+    products.products.sort((a, b) => {
+      const distA = distributorDistanceMap.get(a.distributor?._id?.toString()) ?? Infinity;
+      const distB = distributorDistanceMap.get(b.distributor?._id?.toString()) ?? Infinity;
+      return distA - distB;
+    });
+  }
+
   res.json({
     success: true,
-    ...products
+    ...products,
+    locationFiltered
   });
 });
 
