@@ -16,7 +16,7 @@ const escapeRegex = (text) => {
 // @access  Public
 exports.getAllProducts = asyncHandler(async (req, res) => {
   const { category, minPrice, maxPrice, search, sortBy, page = 1, limit = 24,
-          lat, lng, pincode: locationPincode, distance = 50 } = req.query;
+          pincode: locationPincode, city: locationCity } = req.query;
 
   const filters = {
     isActive: true,
@@ -60,95 +60,67 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
     ];
   }
 
-  // Location-based filtering: find nearby distributors, then filter products
-  // Strategy: try $geoNear for distributors with coordinates, ALWAYS also match
-  // by pincode/city since many distributors may not have geo coordinates set.
-  let distributorDistanceMap = new Map();
+  // Location-based filtering: find distributors by pincode/city, then filter products.
+  // We do NOT use $geoNear because distributor coordinates can be wrong in DB.
+  // Pincode and city text matching is the reliable source of truth.
   let locationFiltered = false;
 
-  if (lat && lng) {
-    const parsedLat = parseFloat(lat);
-    const parsedLng = parseFloat(lng);
-    const maxDistanceMeters = parseFloat(distance) * 1000;
-
-    if (!isNaN(parsedLat) && !isNaN(parsedLng)) {
-      locationFiltered = true;
-      const nearbyIds = [];
-
-      // 1) Try $geoNear for distributors that have coordinates
-      try {
-        const geoDistributors = await Distributor.aggregate([
-          {
-            $geoNear: {
-              near: { type: 'Point', coordinates: [parsedLng, parsedLat] },
-              distanceField: 'dist',
-              maxDistance: maxDistanceMeters,
-              spherical: true,
-              query: { isApproved: true, isActive: true }
-            }
-          },
-          { $project: { _id: 1, dist: { $divide: ['$dist', 1000] } } }
-        ]);
-        geoDistributors.forEach(d => {
-          nearbyIds.push(d._id);
-          distributorDistanceMap.set(d._id.toString(), d.dist);
-        });
-      } catch (geoErr) {
-        // $geoNear can fail if no documents have a 2dsphere index — ignore
-      }
-
-      // 2) Also find distributors by pincode match (covers those without coordinates)
-      if (locationPincode) {
-        const pincodeDistributors = await Distributor.find({
-          pincode: locationPincode,
-          isApproved: true,
-          isActive: true
-        }).select('_id').lean();
-
-        pincodeDistributors.forEach(d => {
-          if (!distributorDistanceMap.has(d._id.toString())) {
-            nearbyIds.push(d._id);
-            distributorDistanceMap.set(d._id.toString(), 0); // same pincode = closest
-          }
-        });
-      }
-
-      // 3) If still no results, try same region (first 3 digits of pincode)
-      if (nearbyIds.length === 0 && locationPincode && /^\d{6}$/.test(locationPincode)) {
-        const pincodePrefix = locationPincode.substring(0, 3);
-        const regionDistributors = await Distributor.find({
-          pincode: { $regex: `^${pincodePrefix}` },
-          isApproved: true,
-          isActive: true
-        }).select('_id').lean();
-
-        regionDistributors.forEach(d => {
-          if (!distributorDistanceMap.has(d._id.toString())) {
-            nearbyIds.push(d._id);
-            distributorDistanceMap.set(d._id.toString(), 10); // region match = moderate distance
-          }
-        });
-      }
-
-      if (nearbyIds.length > 0) {
-        filters.distributor = { $in: nearbyIds };
-      }
-      // If no distributors found at all, don't filter — show all products as fallback
-    }
-  } else if (locationPincode && /^\d{6}$/.test(locationPincode)) {
+  if (locationPincode || locationCity) {
     locationFiltered = true;
+    const nearbyIds = [];
+    const seenIds = new Set();
 
-    const pincodeDistributors = await Distributor.find({
-      pincode: locationPincode,
-      isApproved: true,
-      isActive: true
-    }).select('_id').lean();
+    // 1) Exact pincode match — highest priority
+    if (locationPincode) {
+      const pincodeDistributors = await Distributor.find({
+        pincode: locationPincode,
+        isApproved: true,
+        isActive: true
+      }).select('_id').lean();
 
-    if (pincodeDistributors.length > 0) {
-      pincodeDistributors.forEach(d => distributorDistanceMap.set(d._id.toString(), 0));
-      filters.distributor = { $in: pincodeDistributors.map(d => d._id) };
+      pincodeDistributors.forEach(d => {
+        seenIds.add(d._id.toString());
+        nearbyIds.push(d._id);
+      });
     }
-    // If no match, don't filter — show all products as fallback
+
+    // 2) Same city match (case-insensitive)
+    if (locationCity && locationCity.trim()) {
+      const escapedCity = escapeRegex(locationCity.trim());
+      const cityDistributors = await Distributor.find({
+        city: { $regex: `^${escapedCity}$`, $options: 'i' },
+        isApproved: true,
+        isActive: true
+      }).select('_id').lean();
+
+      cityDistributors.forEach(d => {
+        if (!seenIds.has(d._id.toString())) {
+          seenIds.add(d._id.toString());
+          nearbyIds.push(d._id);
+        }
+      });
+    }
+
+    // 3) Same pincode region (first 3 digits) — only if no results yet
+    if (nearbyIds.length === 0 && locationPincode && /^\d{6}$/.test(locationPincode)) {
+      const pincodePrefix = locationPincode.substring(0, 3);
+      const regionDistributors = await Distributor.find({
+        pincode: { $regex: `^${pincodePrefix}` },
+        isApproved: true,
+        isActive: true
+      }).select('_id').lean();
+
+      regionDistributors.forEach(d => {
+        if (!seenIds.has(d._id.toString())) {
+          nearbyIds.push(d._id);
+        }
+      });
+    }
+
+    if (nearbyIds.length > 0) {
+      filters.distributor = { $in: nearbyIds };
+    }
+    // If no distributors found at all, don't filter — frontend handles "expanding" message
   }
 
   // Validate and limit pagination
@@ -199,15 +171,6 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
   }
 
   let products = await productService.getProducts(filters, options);
-
-  // Sort by distributor distance when location filtering is active
-  if (distributorDistanceMap.size > 0 && products.products) {
-    products.products.sort((a, b) => {
-      const distA = distributorDistanceMap.get(a.distributor?._id?.toString()) ?? Infinity;
-      const distB = distributorDistanceMap.get(b.distributor?._id?.toString()) ?? Infinity;
-      return distA - distB;
-    });
-  }
 
   res.json({
     success: true,

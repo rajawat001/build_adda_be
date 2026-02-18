@@ -35,142 +35,84 @@ exports.getAllDistributors = asyncHandler(async (req, res) => {
 // @desc    Get nearby distributors
 // @route   GET /api/users/distributors/nearby
 // @access  Public
-// Query params: ?pincode=123456&distance=50 OR ?lat=12.34&lng=56.78&distance=50
+// Query params: ?pincode=123456&city=Jaipur OR ?lat=12.34&lng=56.78&pincode=302001&city=Jaipur
 exports.getNearbyDistributors = asyncHandler(async (req, res) => {
-  const { pincode, lat, lng, distance = 50 } = req.query;
+  const { pincode, city, lat, lng } = req.query;
 
   const sensitiveFields = '-password -resetPasswordToken -resetPasswordExpiry -verificationToken -bankAccountNumber -bankIFSC -failedLoginAttempts -lockUntil';
 
-  // Strategy: try $geoNear for distributors with coordinates, then ALSO
-  // match by pincode/city since many distributors may lack geo coordinates.
-  // Merge results, sort by distance (geo first, then pincode matches).
+  // Strategy: pincode and city are the PRIMARY filters (trustworthy).
+  // $geoNear is NOT used for filtering because distributor coordinates
+  // can be wrong in DB. We only use text matching.
+  //
+  // Priority:
+  // 1. Exact pincode match → distance = 0
+  // 2. Same city match (case-insensitive) → distance = null
+  // 3. Same pincode region (first 3 digits) → distance = null
+  // 4. If all empty → return empty (frontend shows "expanding" message)
 
-  if (lat && lng) {
-    const parsedLat = parseFloat(lat);
-    const parsedLng = parseFloat(lng);
-    const maxDistanceMeters = parseFloat(distance) * 1000;
-    const seenIds = new Set();
-    let allDistributors = [];
-
-    // 1) Try $geoNear for distributors that have coordinates
-    try {
-      const geoResults = await Distributor.aggregate([
-        {
-          $geoNear: {
-            near: { type: 'Point', coordinates: [parsedLng, parsedLat] },
-            distanceField: 'distance',
-            maxDistance: maxDistanceMeters,
-            spherical: true,
-            query: { isApproved: true, isActive: true }
-          }
-        },
-        {
-          $addFields: {
-            distance: { $divide: ['$distance', 1000] } // meters → km
-          }
-        },
-        {
-          $project: {
-            password: 0, resetPasswordToken: 0, resetPasswordExpiry: 0,
-            verificationToken: 0, bankAccountNumber: 0, bankIFSC: 0,
-            failedLoginAttempts: 0, lockUntil: 0
-          }
-        },
-        { $sort: { distance: 1, rating: -1 } }
-      ]);
-
-      geoResults.forEach(d => {
-        seenIds.add(d._id.toString());
-        allDistributors.push(d);
-      });
-    } catch (geoErr) {
-      // $geoNear can fail if no documents have coordinates — ignore
-    }
-
-    // 2) Also find distributors by pincode match (covers those without coordinates)
-    if (pincode) {
-      const pincodeResults = await Distributor.find({
-        pincode: pincode,
-        isApproved: true,
-        isActive: true
-      }).select(sensitiveFields).sort('-rating').lean();
-
-      pincodeResults.forEach(d => {
-        if (!seenIds.has(d._id.toString())) {
-          seenIds.add(d._id.toString());
-          allDistributors.push({ ...d, distance: 0 }); // same pincode = closest
-        }
-      });
-    }
-
-    // 3) If still no results, try matching by city (extracted from reverse geocoding)
-    if (allDistributors.length === 0 && pincode) {
-      // Try nearby pincodes (same first 3 digits = same region in India)
-      const pincodePrefix = pincode.toString().substring(0, 3);
-      const regionResults = await Distributor.find({
-        pincode: { $regex: `^${pincodePrefix}` },
-        isApproved: true,
-        isActive: true
-      }).select(sensitiveFields).sort('-rating').lean();
-
-      regionResults.forEach(d => {
-        if (!seenIds.has(d._id.toString())) {
-          seenIds.add(d._id.toString());
-          allDistributors.push({ ...d, distance: null });
-        }
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      count: allDistributors.length,
-      distributors: allDistributors
+  if (!pincode && !city) {
+    return res.status(400).json({
+      success: false,
+      error: 'Please provide pincode or city'
     });
   }
 
-  // Only pincode provided (no lat/lng)
-  if (pincode) {
-    const seenIds = new Set();
-    let allDistributors = [];
+  const seenIds = new Set();
+  let allDistributors = [];
 
-    // Exact pincode match
-    const exactMatch = await Distributor.find({
+  // 1) Exact pincode match — highest priority
+  if (pincode) {
+    const pincodeResults = await Distributor.find({
       pincode: pincode,
       isApproved: true,
       isActive: true
     }).select(sensitiveFields).sort('-rating').lean();
 
-    exactMatch.forEach(d => {
+    pincodeResults.forEach(d => {
       seenIds.add(d._id.toString());
       allDistributors.push({ ...d, distance: 0 });
     });
+  }
 
-    // If no exact match, try same region (first 3 digits)
-    if (allDistributors.length === 0) {
-      const pincodePrefix = pincode.toString().substring(0, 3);
-      const regionResults = await Distributor.find({
-        pincode: { $regex: `^${pincodePrefix}` },
-        isApproved: true,
-        isActive: true
-      }).select(sensitiveFields).sort('-rating').lean();
+  // 2) Same city match (case-insensitive) — catches distributors with different pincodes but same city
+  if (city && city.trim()) {
+    const escaped = city.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const cityResults = await Distributor.find({
+      city: { $regex: `^${escaped}$`, $options: 'i' },
+      isApproved: true,
+      isActive: true
+    }).select(sensitiveFields).sort('-rating').lean();
 
-      regionResults.forEach(d => {
-        if (!seenIds.has(d._id.toString())) {
-          allDistributors.push({ ...d, distance: null });
-        }
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      count: allDistributors.length,
-      distributors: allDistributors
+    cityResults.forEach(d => {
+      if (!seenIds.has(d._id.toString())) {
+        seenIds.add(d._id.toString());
+        allDistributors.push({ ...d, distance: null });
+      }
     });
   }
 
-  return res.status(400).json({
-    success: false,
-    error: 'Please provide either pincode or lat/lng coordinates'
+  // 3) Same pincode region (first 3 digits) — only if still no results
+  if (allDistributors.length === 0 && pincode && /^\d{6}$/.test(pincode)) {
+    const pincodePrefix = pincode.substring(0, 3);
+    const regionResults = await Distributor.find({
+      pincode: { $regex: `^${pincodePrefix}` },
+      isApproved: true,
+      isActive: true
+    }).select(sensitiveFields).sort('-rating').lean();
+
+    regionResults.forEach(d => {
+      if (!seenIds.has(d._id.toString())) {
+        seenIds.add(d._id.toString());
+        allDistributors.push({ ...d, distance: null });
+      }
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    count: allDistributors.length,
+    distributors: allDistributors
   });
 });
 
