@@ -27,7 +27,9 @@ const shippingAddressSchema = new mongoose.Schema({
     type: String,
     required: true,
     match: [/^\d{6}$/, 'Please provide a valid 6-digit pincode']
-  }
+  },
+  latitude: { type: Number },
+  longitude: { type: Number }
 });
 
 const orderSchema = new mongoose.Schema({

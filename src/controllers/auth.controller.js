@@ -373,7 +373,7 @@ const updateProfile = asyncHandler(async (req, res) => {
 // @access  Private
 const addAddress = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const { fullName, phone, address, city, state, pincode, isDefault } = req.body;
+  const { fullName, phone, address, city, state, pincode, isDefault, latitude, longitude } = req.body;
 
   // FIX: Validate and whitelist fields (prevent mass assignment)
   const addressData = {
@@ -383,7 +383,9 @@ const addAddress = asyncHandler(async (req, res) => {
     city: city?.trim(),
     state: state?.trim(),
     pincode,
-    isDefault: isDefault || false
+    isDefault: isDefault || false,
+    latitude: latitude || undefined,
+    longitude: longitude || undefined
   };
 
   // Additional validation to ensure no empty strings after trim
@@ -420,7 +422,7 @@ const addAddress = asyncHandler(async (req, res) => {
 const updateAddress = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { addressId } = req.params;
-  const { fullName, phone, address, city, state, pincode, isDefault } = req.body;
+  const { fullName, phone, address, city, state, pincode, isDefault, latitude, longitude } = req.body;
 
   const user = await User.findById(userId);
 
@@ -441,6 +443,8 @@ const updateAddress = asyncHandler(async (req, res) => {
   if (city !== undefined) addressToUpdate.city = city.trim();
   if (state !== undefined) addressToUpdate.state = state.trim();
   if (pincode !== undefined) addressToUpdate.pincode = pincode;
+  if (latitude !== undefined) addressToUpdate.latitude = latitude;
+  if (longitude !== undefined) addressToUpdate.longitude = longitude;
 
   // Handle default address logic
   if (isDefault) {

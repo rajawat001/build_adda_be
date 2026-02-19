@@ -747,7 +747,7 @@ exports.getProfile = asyncHandler(async (req, res) => {
 // @access  Private (Distributor only)
 exports.updateProfile = asyncHandler(async (req, res) => {
   const distributorId = req.user._id;
-  const { businessName, phone, address, pincode, city, state } = req.body;
+  const { businessName, phone, address, pincode, city, state, location } = req.body;
 
   const distributor = await Distributor.findById(distributorId);
 
@@ -806,6 +806,18 @@ exports.updateProfile = asyncHandler(async (req, res) => {
       throw new ValidationError('Please provide a valid 6-digit pincode');
     }
     distributor.pincode = pincode.trim();
+  }
+
+  if (location !== undefined && location !== null) {
+    if (location.coordinates && Array.isArray(location.coordinates) && location.coordinates.length === 2) {
+      const [lng, lat] = location.coordinates;
+      if (typeof lng === 'number' && typeof lat === 'number' &&
+          lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90) {
+        distributor.location = { type: 'Point', coordinates: [lng, lat] };
+      } else {
+        throw new ValidationError('Invalid coordinates: longitude must be -180 to 180, latitude -90 to 90');
+      }
+    }
   }
 
   await distributor.save();
