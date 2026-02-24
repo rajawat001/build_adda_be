@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const slugify = require('slugify');
 
 const distributorSchema = new mongoose.Schema({
   businessName: {
@@ -180,6 +181,13 @@ const distributorSchema = new mongoose.Schema({
     maxlength: [1000, 'Description cannot exceed 1000 characters']
   },
 
+  slug: {
+    type: String,
+    unique: true,
+    lowercase: true,
+    index: true
+  },
+
   isActive: {
     type: Boolean,
     default: true
@@ -189,6 +197,7 @@ const distributorSchema = new mongoose.Schema({
 });
 
 // INDEXES for performance optimization
+distributorSchema.index({ slug: 1 });
 distributorSchema.index({ location: '2dsphere' });
 distributorSchema.index({ email: 1 });
 distributorSchema.index({ isApproved: 1, isActive: 1 });
@@ -200,8 +209,22 @@ distributorSchema.virtual('isLocked').get(function() {
   return !!(this.lockUntil && this.lockUntil > Date.now());
 });
 
-// PRE-SAVE MIDDLEWARE: Hash password if modified
+// PRE-SAVE MIDDLEWARE: Hash password if modified + generate slug
 distributorSchema.pre('save', async function(next) {
+  // Generate slug from businessName + city
+  if (this.isModified('businessName') || this.isModified('city') || (this.isNew && !this.slug)) {
+    const cityPart = this.city ? `-${this.city}` : '';
+    let baseSlug = slugify(`${this.businessName}${cityPart}`, { lower: true, strict: true });
+
+    let slug = baseSlug;
+    let counter = 1;
+    while (await mongoose.model('Distributor').findOne({ slug, _id: { $ne: this._id } })) {
+      slug = `${baseSlug}-${counter}`;
+      counter++;
+    }
+    this.slug = slug;
+  }
+
   if (!this.isModified('password')) {
     return next();
   }

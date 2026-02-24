@@ -120,8 +120,14 @@ exports.getNearbyDistributors = asyncHandler(async (req, res) => {
 // @route   GET /api/users/distributors/:id
 // @access  Public
 exports.getDistributorProfile = asyncHandler(async (req, res) => {
+  const param = req.params.id;
+
+  // Check if param is a valid MongoDB ObjectID or a slug
+  const isObjectId = /^[0-9a-fA-F]{24}$/.test(param);
+  const lookupQuery = isObjectId ? { _id: param } : { slug: param };
+
   const distributor = await Distributor.findOne({
-    _id: req.params.id,
+    ...lookupQuery,
     isApproved: true,
     isActive: true
   }).select('-password -resetPasswordToken -resetPasswordExpiry -verificationToken -bankAccountNumber -bankIFSC -failedLoginAttempts -lockUntil');

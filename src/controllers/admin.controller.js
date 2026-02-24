@@ -439,7 +439,7 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
   }
 
   const products = await Product.find(filter)
-    .populate('distributor', 'businessName email')
+    .populate('distributor', 'businessName email slug')
     .sort('-createdAt')
     .limit(limitNum)
     .skip((pageNum - 1) * limitNum);
@@ -823,7 +823,7 @@ exports.getAllOrders = asyncHandler(async (req, res) => {
 
   const orders = await Order.find(filter)
     .populate('user', 'name email phone')
-    .populate('distributor', 'businessName email')
+    .populate('distributor', 'businessName email slug')
     .populate('items.product', 'name price')
     .sort('-createdAt')
     .limit(limitNum)

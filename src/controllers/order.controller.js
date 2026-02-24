@@ -422,7 +422,7 @@ exports.getOrderById = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
   const order = await Order.findById(orderId)
-    .populate('distributor', 'businessName phone email')
+    .populate('distributor', 'businessName phone email slug')
     .populate('items.product', 'name image price');
 
   if (!order) {
@@ -625,7 +625,7 @@ exports.getGuestOrder = asyncHandler(async (req, res) => {
     guestEmail: email.toLowerCase(),
     isGuestOrder: true
   })
-    .populate('distributor', 'businessName phone email')
+    .populate('distributor', 'businessName phone email slug')
     .populate('items.product', 'name image price');
 
   if (!order) {

@@ -34,13 +34,13 @@ class ProductService {
   async getProductById(productId) {
     return await Product.findById(productId)
       .populate('category', 'name description')
-      .populate('distributor', 'businessName email phone address city state pincode');
+      .populate('distributor', 'businessName email phone address city state pincode slug');
   }
 
   // Get products by category
   async getProductsByCategory(categoryId) {
     return await Product.find({ category: categoryId })
-      .populate('distributor', 'businessName')
+      .populate('distributor', 'businessName slug')
       .sort('-createdAt')
       .lean();
   }
@@ -241,7 +241,7 @@ class ProductService {
 
     return await Product.find(searchQuery)
       .populate('category', 'name')
-      .populate('distributor', 'businessName')
+      .populate('distributor', 'businessName slug')
       .sort('-createdAt')
       .lean();
   }
@@ -250,7 +250,7 @@ class ProductService {
   async getFeaturedProducts(limit = 10) {
     return await Product.find({ isFeatured: true, stock: { $gt: 0 } })
       .populate('category', 'name')
-      .populate('distributor', 'businessName')
+      .populate('distributor', 'businessName slug')
       .limit(limit)
       .sort('-createdAt')
       .lean();

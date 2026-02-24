@@ -294,7 +294,7 @@ exports.getAllSubscriptions = asyncHandler(async (req, res) => {
   }
 
   const subscriptions = await Subscription.find(filter)
-    .populate('distributor', 'businessName email phone')
+    .populate('distributor', 'businessName email phone slug')
     .populate('plan', 'name duration realPrice offerPrice')
     .populate('couponApplied', 'code discountType discountValue freeMonths')
     .sort({ createdAt: -1 })
@@ -322,7 +322,7 @@ exports.getSubscription = asyncHandler(async (req, res) => {
   const { subscriptionId } = req.params;
 
   const subscription = await Subscription.findById(subscriptionId)
-    .populate('distributor', 'businessName email phone')
+    .populate('distributor', 'businessName email phone slug')
     .populate('plan', 'name duration realPrice offerPrice features')
     .populate('couponApplied', 'code discountType discountValue freeMonths');
 
@@ -393,7 +393,7 @@ exports.extendSubscription = asyncHandler(async (req, res) => {
   }
   await subscription.save();
 
-  await subscription.populate('distributor', 'businessName email');
+  await subscription.populate('distributor', 'businessName email slug');
   await subscription.populate('plan', 'name');
 
   res.json({

@@ -50,7 +50,7 @@ exports.getAllReviews = async (req, res) => {
     const reviews = await Review.find(filter)
       .populate('user', 'name email')
       .populate('product', 'name')
-      .populate('distributor', 'businessName')
+      .populate('distributor', 'businessName slug')
       .populate('approvedBy', 'name')
       .sort('-createdAt')
       .limit(limitNum)

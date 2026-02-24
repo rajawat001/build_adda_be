@@ -143,7 +143,7 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
     limit: limitNum,
     sort: sortOption,
     populate: [
-      { path: 'distributor', select: 'businessName email phone city state pincode' }
+      { path: 'distributor', select: 'businessName email phone city state pincode slug' }
     ]
   };
 
@@ -183,8 +183,14 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
 // @route   GET /api/products/:id
 // @access  Public
 exports.getProductById = asyncHandler(async (req, res) => {
-  const product = await Product.findById(req.params.id)
-    .populate('distributor', 'businessName email phone address city state rating');
+  const param = req.params.id;
+
+  // Check if param is a valid MongoDB ObjectID or a slug
+  const isObjectId = /^[0-9a-fA-F]{24}$/.test(param);
+  const query = isObjectId ? { _id: param } : { slug: param };
+
+  const product = await Product.findOne(query)
+    .populate('distributor', 'businessName email phone address city state rating slug');
 
   if (!product) {
     throw new NotFoundError('Product not found');
@@ -213,7 +219,7 @@ exports.getProductsByCategory = asyncHandler(async (req, res) => {
     category: categoryId,
     isActive: true,
     $expr: { $gte: ['$stock', '$minQuantity'] }
-  }).populate('distributor', 'businessName city state');
+  }).populate('distributor', 'businessName city state slug');
 
   res.json({ success: true, count: products.length, products });
 });
@@ -228,7 +234,7 @@ exports.getProductsByDistributor = asyncHandler(async (req, res) => {
     distributor: distributorId,
     isActive: true,
     $expr: { $gte: ['$stock', '$minQuantity'] }
-  }).populate('distributor', 'businessName email phone city state rating');
+  }).populate('distributor', 'businessName email phone city state rating slug');
 
   res.json({ success: true, count: products.length, products });
 });
@@ -344,7 +350,7 @@ exports.getWishlist = asyncHandler(async (req, res) => {
 
   const user = await User.findById(userId).populate({
     path: 'wishlist',
-    populate: { path: 'distributor', select: 'businessName city state' }
+    populate: { path: 'distributor', select: 'businessName city state slug' }
   });
 
   res.json({ success: true, wishlist: user.wishlist });
@@ -401,7 +407,7 @@ exports.addToCart = asyncHandler(async (req, res) => {
   // Populate cart for response
   await user.populate({
     path: 'cart.product',
-    populate: { path: 'distributor', select: 'businessName' }
+    populate: { path: 'distributor', select: 'businessName slug' }
   });
 
   res.json({
@@ -447,7 +453,7 @@ exports.updateCartItem = asyncHandler(async (req, res) => {
 
   await user.populate({
     path: 'cart.product',
-    populate: { path: 'distributor', select: 'businessName' }
+    populate: { path: 'distributor', select: 'businessName slug' }
   });
 
   res.json({
@@ -470,7 +476,7 @@ exports.removeFromCart = asyncHandler(async (req, res) => {
 
   await user.populate({
     path: 'cart.product',
-    populate: { path: 'distributor', select: 'businessName' }
+    populate: { path: 'distributor', select: 'businessName slug' }
   });
 
   res.json({
@@ -488,7 +494,7 @@ exports.getCart = asyncHandler(async (req, res) => {
 
   const user = await User.findById(userId).populate({
     path: 'cart.product',
-    populate: { path: 'distributor', select: 'businessName city state' }
+    populate: { path: 'distributor', select: 'businessName city state slug' }
   });
 
   res.json({ success: true, cart: user.cart });

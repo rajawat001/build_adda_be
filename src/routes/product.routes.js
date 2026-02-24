@@ -11,23 +11,20 @@ router.get('/categories', productController.getCategories);
 router.get('/category/:categoryId', productController.getProductsByCategory);
 router.get('/distributor/:distributorId', productController.getProductsByDistributor);
 
-// Product detail - public with optional auth
-// Regex ensures only valid MongoDB ObjectIDs match, so /wishlist, /cart etc. pass through
-router.get('/:id([0-9a-fA-F]{24})', authMiddleware.optionalAuth, productController.getProductById);
-
 // Protected routes - authentication REQUIRED (define specific routes first)
-router.use(authMiddleware.protect);
+// These specific named routes (/wishlist, /cart) are matched before /:id below
+router.get('/wishlist', authMiddleware.protect, productController.getWishlist);
+router.post('/wishlist', authMiddleware.protect, productController.addToWishlist);
+router.delete('/wishlist/:productId', authMiddleware.protect, productController.removeFromWishlist);
 
-// Wishlist routes
-router.get('/wishlist', productController.getWishlist);
-router.post('/wishlist', productController.addToWishlist);
-router.delete('/wishlist/:productId', productController.removeFromWishlist);
+router.get('/cart', authMiddleware.protect, productController.getCart);
+router.post('/cart', authMiddleware.protect, productController.addToCart);
+router.put('/cart/:productId', authMiddleware.protect, productController.updateCartItem);
+router.delete('/cart/:productId', authMiddleware.protect, productController.removeFromCart);
+router.delete('/cart', authMiddleware.protect, productController.clearCart);
 
-// Cart routes
-router.get('/cart', productController.getCart);
-router.post('/cart', productController.addToCart);
-router.put('/cart/:productId', productController.updateCartItem);
-router.delete('/cart/:productId', productController.removeFromCart);
-router.delete('/cart', productController.clearCart);
+// Product detail - public with optional auth
+// Accepts both MongoDB ObjectID and slug. MUST be last to avoid catching /wishlist, /cart, etc.
+router.get('/:id', authMiddleware.optionalAuth, productController.getProductById);
 
 module.exports = router;

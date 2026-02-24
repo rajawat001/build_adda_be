@@ -1,10 +1,17 @@
 const mongoose = require('mongoose');
+const slugify = require('slugify');
 
 const productSchema = new mongoose.Schema({
   name: {
     type: String,
     required: true,
     trim: true
+  },
+  slug: {
+    type: String,
+    unique: true,
+    lowercase: true,
+    index: true
   },
   description: {
     type: String,
@@ -118,6 +125,23 @@ const productSchema = new mongoose.Schema({
   timestamps: true
 });
 
+productSchema.pre('save', async function(next) {
+  if (this.isModified('name')) {
+    let baseSlug = slugify(this.name, { lower: true, strict: true });
+
+    // Ensure uniqueness by checking DB and appending counter
+    let slug = baseSlug;
+    let counter = 1;
+    while (await mongoose.model('Product').findOne({ slug, _id: { $ne: this._id } })) {
+      slug = `${baseSlug}-${counter}`;
+      counter++;
+    }
+    this.slug = slug;
+  }
+  next();
+});
+
+productSchema.index({ slug: 1 });
 productSchema.index({ category: 1 });
 productSchema.index({ distributor: 1 });
 productSchema.index({ name: 'text', description: 'text' });
