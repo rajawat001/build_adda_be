@@ -14,6 +14,7 @@ const cron = require('node-cron');
 const connectDB = require('./config/db');
 const { errorHandler, notFound } = require('./middleware/error.middleware');
 const { processSubscriptionRenewals, sendRenewalReminders } = require('./jobs/subscriptionRenewal.job');
+const { runSlugMigration } = require('./scripts/migrateSlug');
 
 // Validate required environment variables
 const requiredEnvVars = ['JWT_SECRET', 'MONGODB_URI'];
@@ -213,6 +214,9 @@ const server = app.listen(PORT, () => {
 ║   Status: READY ✓                      ║
 ╚════════════════════════════════════════╝
   `);
+
+  // Run one-time slug migration (idempotent — skips if already done)
+  runSlugMigration();
 
   // Schedule subscription renewal job (runs daily at 6 AM)
   cron.schedule('0 6 * * *', async () => {
