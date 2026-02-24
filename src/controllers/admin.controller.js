@@ -287,7 +287,7 @@ exports.approveDistributor = asyncHandler(async (req, res) => {
 // @access  Private (Admin only)
 exports.updateDistributor = asyncHandler(async (req, res) => {
   const { distributorId } = req.params;
-  const { isActive, businessName, ownerName, email, phone, city, state, address, gstNumber } = req.body;
+  const { isActive, businessName, name, email, phone, city, state, address, gstNumber } = req.body;
 
   const distributor = await Distributor.findById(distributorId).select('-password');
 
@@ -304,8 +304,8 @@ exports.updateDistributor = asyncHandler(async (req, res) => {
     distributor.businessName = businessName.trim();
   }
 
-  if (ownerName !== undefined && ownerName.trim()) {
-    distributor.ownerName = ownerName.trim();
+  if (name !== undefined && name.trim()) {
+    distributor.name = name.trim();
   }
 
   if (email !== undefined && email.trim()) {
