@@ -10,6 +10,7 @@ const {
   deleteAddress,
   logout
 } = require('../controllers/auth.controller');
+const { googleAuth, googleRegisterDistributor } = require('../controllers/google-auth.controller');
 const { protect } = require('../middleware/auth.middleware');
 const { validators, validate, body } = require('../utils/validators');
 
@@ -98,6 +99,30 @@ router.delete('/addresses/:addressId',
   validators.mongoId('addressId'),
   validate,
   deleteAddress
+);
+
+// @route   POST /api/auth/google
+// @desc    Google OAuth login/register
+// @access  Public
+router.post('/google',
+  body('credential').notEmpty().withMessage('Google credential is required'),
+  validate,
+  googleAuth
+);
+
+// @route   POST /api/auth/google/register-distributor
+// @desc    Google OAuth register as distributor (with business details)
+// @access  Public
+router.post('/google/register-distributor',
+  body('credential').notEmpty().withMessage('Google credential is required'),
+  body('businessName').trim().notEmpty().withMessage('Business name is required'),
+  body('phone').matches(/^[6-9]\d{9}$/).withMessage('Invalid phone number'),
+  body('address').trim().isLength({ min: 10 }).withMessage('Address must be at least 10 characters'),
+  body('city').trim().notEmpty().withMessage('City is required'),
+  body('state').trim().notEmpty().withMessage('State is required'),
+  body('pincode').matches(/^\d{6}$/).withMessage('Invalid pincode'),
+  validate,
+  googleRegisterDistributor
 );
 
 module.exports = router;

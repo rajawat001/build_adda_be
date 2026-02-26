@@ -59,14 +59,19 @@ const userSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: [true, 'Password is required'],
+    required: [function() { return !this.googleId; }, 'Password is required'],
     minlength: [8, 'Password must be at least 8 characters'],
     select: false  // SECURITY FIX: Password never returned in queries by default
   },
   phone: {
     type: String,
-    required: [true, 'Phone number is required'],
+    required: [function() { return !this.googleId; }, 'Phone number is required'],
     match: [/^[6-9]\d{9}$/, 'Please provide a valid 10-digit Indian phone number']
+  },
+  googleId: {
+    type: String,
+    unique: true,
+    sparse: true
   },
   role: {
     type: String,
@@ -160,6 +165,14 @@ userSchema.index({ 'addresses.pincode': 1 });
 // VIRTUAL: Check if account is locked
 userSchema.virtual('isLocked').get(function() {
   return !!(this.lockUntil && this.lockUntil > Date.now());
+});
+
+// PRE-VALIDATE MIDDLEWARE: Clear invalid location (no coordinates breaks 2dsphere index)
+userSchema.pre('validate', function(next) {
+  if (this.location && (!this.location.coordinates || this.location.coordinates.length === 0)) {
+    this.location = undefined;
+  }
+  next();
 });
 
 // PRE-VALIDATE MIDDLEWARE: Normalize role field

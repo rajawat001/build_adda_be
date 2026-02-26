@@ -11,7 +11,8 @@ const approveDistributorAfterSubscription = async (distributorId) => {
   try {
     await Distributor.findByIdAndUpdate(distributorId, {
       isApproved: true,
-      approvedAt: new Date()
+      approvedAt: new Date(),
+      planType: 'subscription'
     });
     console.log(`Distributor ${distributorId} auto-approved after subscription`);
   } catch (error) {
