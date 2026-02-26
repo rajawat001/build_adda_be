@@ -80,10 +80,18 @@ exports.createOrder = asyncHandler(async (req, res) => {
     subtotal += product.price * item.quantity;
   }
 
-  // Validate shipping address is within distributor's service area
+  // Validate distributor exists, is active, and has a plan
   const distributorDoc = await Distributor.findById(distributor);
   if (!distributorDoc) {
     throw new NotFoundError('Distributor not found');
+  }
+
+  if (!distributorDoc.isApproved || !distributorDoc.isActive || distributorDoc.planType === 'none') {
+    throw new ValidationError('This distributor is currently not available for orders');
+  }
+
+  if (distributorDoc.isWalletLocked) {
+    throw new ValidationError('This distributor is temporarily unavailable. Please try another distributor.');
   }
 
   const shipCity = shippingAddress.city?.toLowerCase().trim();
@@ -459,6 +467,19 @@ exports.cancelOrder = asyncHandler(async (req, res) => {
     throw new AuthorizationError('You are not authorized to cancel this order');
   }
 
+  // Reverse commission if the order was delivered (commission plan distributors)
+  if (order.orderStatus === 'delivered') {
+    const cancelDistributor = await Distributor.findById(order.distributor);
+    if (cancelDistributor && cancelDistributor.planType === 'commission') {
+      try {
+        const { reverseCommission } = require('../modules/commission/services/commission.service');
+        await reverseCommission(order._id);
+      } catch (commErr) {
+        console.error('Error reversing commission:', commErr.message);
+      }
+    }
+  }
+
   // Use the model method to cancel
   await order.cancel(reason || 'Cancelled by user', userId, 'User');
 
@@ -595,6 +616,19 @@ exports.updateOrderStatus = asyncHandler(async (req, res) => {
 
   // Use model method for status update with validation
   await order.updateStatus(status, note, distributorId, 'Distributor');
+
+  // Charge commission when order is delivered (commission plan distributors only)
+  if (status === 'delivered') {
+    const distributor = await Distributor.findById(order.distributor);
+    if (distributor && distributor.planType === 'commission') {
+      try {
+        const { chargeCommission } = require('../modules/commission/services/commission.service');
+        await chargeCommission(order._id);
+      } catch (commErr) {
+        console.error('Error charging commission:', commErr.message);
+      }
+    }
+  }
 
   // Send status update email to user (non-blocking)
   const statusUser = await User.findById(order.user);

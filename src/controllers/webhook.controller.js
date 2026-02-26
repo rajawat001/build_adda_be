@@ -68,6 +68,8 @@ exports.handlePhonepeWebhook = async (req, res) => {
           await handleOrderWebhook(merchantOrderId, transactionId, true, paymentMode);
         } else if (merchantOrderId && merchantOrderId.startsWith('SUB_')) {
           await handleSubscriptionWebhook(merchantOrderId, transactionId, true);
+        } else if (merchantOrderId && merchantOrderId.startsWith('COMM_')) {
+          await handleCommissionWebhook(merchantOrderId, transactionId, true);
         }
         break;
 
@@ -76,6 +78,8 @@ exports.handlePhonepeWebhook = async (req, res) => {
           await handleOrderWebhook(merchantOrderId, transactionId, false, paymentMode);
         } else if (merchantOrderId && merchantOrderId.startsWith('SUB_')) {
           await handleSubscriptionWebhook(merchantOrderId, transactionId, false);
+        } else if (merchantOrderId && merchantOrderId.startsWith('COMM_')) {
+          await handleCommissionWebhook(merchantOrderId, transactionId, false);
         }
         break;
 
@@ -459,6 +463,20 @@ async function handleSubscriptionPaused(payload) {
     },
     'Distributor'
   );
+}
+
+// ─────────────────────────────────────────────────────────────
+// COMMISSION PAYMENT WEBHOOK HANDLER
+// ─────────────────────────────────────────────────────────────
+
+async function handleCommissionWebhook(merchantOrderId, transactionId, isSuccess) {
+  const { handleCommissionPaymentSuccess, handleCommissionPaymentFailure } = require('../modules/commission/services/commission-payment.service');
+
+  if (isSuccess) {
+    await handleCommissionPaymentSuccess(merchantOrderId, transactionId);
+  } else {
+    await handleCommissionPaymentFailure(merchantOrderId);
+  }
 }
 
 module.exports = exports;

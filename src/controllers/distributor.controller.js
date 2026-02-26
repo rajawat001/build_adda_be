@@ -430,75 +430,126 @@ exports.deleteProduct = asyncHandler(async (req, res) => {
 // @route   GET /api/distributor/stats
 // @access  Private (Distributor only)
 exports.getDistributorStats = asyncHandler(async (req, res) => {
-  // FIX: Use _id consistently
   const distributorId = req.user._id;
 
-  // Run queries in parallel for better performance
+  const now = new Date();
+  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+  const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfPreviousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const baseMatch = { distributor: distributorId };
+
+  // Run all queries in parallel using aggregations
   const [
     totalProducts,
-    lowStockProducts,
-    allOrders,
-    lowStockData
+    lowStockCount,
+    lowStockData,
+    revenueResult,
+    totalOrders,
+    statusCounts,
+    revenueTrend,
+    currentMonthRevResult,
+    prevMonthRevResult,
+    currentMonthOrders,
+    prevMonthOrders,
+    recentOrders
   ] = await Promise.all([
+    // 1. Total products
     Product.countDocuments({ distributor: distributorId }),
-    Product.countDocuments({
-      distributor: distributorId,
-      stock: { $lte: 10 }
-    }),
-    // FIX: Query using distributor field directly, not nested path
-    Order.find({ distributor: distributorId })
-      .populate('items.product', 'name price')
-      .sort('-createdAt'),
-    Product.find({
-      distributor: distributorId,
-      stock: { $lte: 10 }
-    }).select('name stock').limit(10).sort('stock')
+    // 2. Low stock count
+    Product.countDocuments({ distributor: distributorId, stock: { $lte: 10 } }),
+    // 3. Low stock product details
+    Product.find({ distributor: distributorId, stock: { $lte: 10 } })
+      .select('name stock').limit(10).sort('stock'),
+    // 4. Total revenue (delivered only)
+    Order.aggregate([
+      { $match: { ...baseMatch, orderStatus: 'delivered' } },
+      { $group: { _id: null, total: { $sum: '$totalAmount' }, count: { $sum: 1 } } }
+    ]),
+    // 5. Total order count
+    Order.countDocuments(baseMatch),
+    // 6. Order counts by status
+    Order.aggregate([
+      { $match: baseMatch },
+      { $group: { _id: '$orderStatus', count: { $sum: 1 } } }
+    ]),
+    // 7. Revenue by month (last 6 months, delivered only)
+    Order.aggregate([
+      { $match: { ...baseMatch, orderStatus: 'delivered', createdAt: { $gte: sixMonthsAgo } } },
+      { $group: {
+        _id: { $dateToString: { format: '%Y-%m', date: '$createdAt' } },
+        revenue: { $sum: '$totalAmount' },
+        label: { $first: { $dateToString: { format: '%b %Y', date: '$createdAt' } } }
+      }},
+      { $sort: { _id: 1 } }
+    ]),
+    // 8. Current month revenue
+    Order.aggregate([
+      { $match: { ...baseMatch, orderStatus: 'delivered', createdAt: { $gte: startOfCurrentMonth } } },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+    ]),
+    // 9. Previous month revenue
+    Order.aggregate([
+      { $match: { ...baseMatch, orderStatus: 'delivered', createdAt: { $gte: startOfPreviousMonth, $lt: startOfCurrentMonth } } },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+    ]),
+    // 10. Current month order count
+    Order.countDocuments({ ...baseMatch, createdAt: { $gte: startOfCurrentMonth } }),
+    // 11. Previous month order count
+    Order.countDocuments({ ...baseMatch, createdAt: { $gte: startOfPreviousMonth, $lt: startOfCurrentMonth } }),
+    // 12. Recent orders for activity feed
+    Order.find(baseMatch)
+      .select('orderNumber orderStatus totalAmount updatedAt createdAt')
+      .sort('-updatedAt')
+      .limit(10)
+      .lean()
   ]);
 
-  // Calculate order statistics
-  const totalOrders = allOrders.length;
-  const pendingOrders = allOrders.filter(o => o.orderStatus === 'pending').length;
-  const processingOrders = allOrders.filter(o => o.orderStatus === 'processing').length;
-  const shippedOrders = allOrders.filter(o => o.orderStatus === 'shipped').length;
-  const deliveredOrders = allOrders.filter(o => o.orderStatus === 'delivered').length;
+  // Extract revenue and delivered count
+  const totalRevenue = revenueResult[0]?.total || 0;
+  const deliveredCount = revenueResult[0]?.count || 0;
+  const averageOrderValue = deliveredCount > 0 ? Math.round(totalRevenue / deliveredCount) : 0;
 
-  // Calculate total revenue (only from delivered orders)
-  const totalRevenue = allOrders
-    .filter(o => o.orderStatus === 'delivered')
-    .reduce((sum, order) => sum + order.totalAmount, 0);
+  // Growth calculations
+  const currentMonthRev = currentMonthRevResult[0]?.total || 0;
+  const prevMonthRev = prevMonthRevResult[0]?.total || 0;
+  const revenueGrowth = prevMonthRev > 0
+    ? ((currentMonthRev - prevMonthRev) / prevMonthRev) * 100
+    : currentMonthRev > 0 ? 100 : 0;
+  const ordersGrowth = prevMonthOrders > 0
+    ? ((currentMonthOrders - prevMonthOrders) / prevMonthOrders) * 100
+    : currentMonthOrders > 0 ? 100 : 0;
 
-  // Calculate revenue by month for the last 6 months
-  const sixMonthsAgo = new Date();
-  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+  // Revenue data for chart
+  const revenueData = revenueTrend.map(r => ({ month: r.label, revenue: r.revenue }));
 
-  const recentOrders = allOrders.filter(o =>
-    new Date(o.createdAt) >= sixMonthsAgo &&
-    o.orderStatus === 'delivered'
-  );
-
-  const revenueByMonth = {};
-  recentOrders.forEach(order => {
-    const month = new Date(order.createdAt).toLocaleString('default', { month: 'short', year: 'numeric' });
-    revenueByMonth[month] = (revenueByMonth[month] || 0) + order.totalAmount;
-  });
-
-  const revenueData = Object.entries(revenueByMonth).map(([month, revenue]) => ({
-    month,
-    revenue
+  // Order status breakdown (all 6 statuses)
+  const allStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
+  const orderData = allStatuses.map(status => ({
+    status,
+    count: statusCounts.find(s => s._id === status)?.count || 0
   }));
 
-  // Order status breakdown
-  const orderData = [
-    { status: 'pending', count: pendingOrders },
-    { status: 'processing', count: processingOrders },
-    { status: 'shipped', count: shippedOrders },
-    { status: 'delivered', count: deliveredOrders }
-  ];
+  const pendingOrders = orderData.find(s => s.status === 'pending')?.count || 0;
 
   // Low stock products
-  const stockData = lowStockData.map(p => ({
-    product: p.name,
-    stock: p.stock
+  const stockData = lowStockData.map(p => ({ product: p.name, stock: p.stock }));
+
+  // Recent activity from real orders
+  const statusMessages = {
+    pending: 'New order received',
+    confirmed: 'Order confirmed',
+    processing: 'Order being processed',
+    shipped: 'Order shipped',
+    delivered: 'Order delivered',
+    cancelled: 'Order cancelled',
+  };
+  const recentActivity = recentOrders.map(order => ({
+    id: order._id,
+    orderNumber: order.orderNumber,
+    status: order.orderStatus,
+    amount: order.totalAmount,
+    timestamp: order.updatedAt || order.createdAt,
+    message: `${statusMessages[order.orderStatus] || 'Order updated'} — #${order.orderNumber}`
   }));
 
   res.json({
@@ -508,10 +559,16 @@ exports.getDistributorStats = asyncHandler(async (req, res) => {
       totalOrders,
       totalProducts,
       pendingOrders,
-      lowStockProducts,
+      lowStockProducts: lowStockCount,
+      averageOrderValue,
+      growth: {
+        revenue: { value: Math.round(Math.abs(revenueGrowth) * 10) / 10, isPositive: revenueGrowth >= 0 },
+        orders: { value: Math.round(Math.abs(ordersGrowth) * 10) / 10, isPositive: ordersGrowth >= 0 },
+      },
       revenueData,
       orderData,
-      stockData
+      stockData,
+      recentActivity,
     }
   });
 });
@@ -594,6 +651,19 @@ exports.updateOrderStatus = asyncHandler(async (req, res) => {
   // Use the Order model's updateStatus method
   await order.updateStatus(orderStatus, note || '', distributorId, 'Distributor');
 
+  // Charge commission when order is delivered (for commission-plan distributors)
+  if (orderStatus === 'delivered') {
+    try {
+      const distributor = await Distributor.findById(distributorId).select('planType').lean();
+      if (distributor && distributor.planType === 'commission') {
+        const { chargeCommission } = require('../modules/commission/services/commission.service');
+        await chargeCommission(order._id);
+      }
+    } catch (commErr) {
+      console.error('Commission charge error:', commErr.message);
+    }
+  }
+
   // Populate order to get user details
   await order.populate('user', 'name email phone');
 
@@ -612,13 +682,15 @@ exports.updateOrderStatus = asyncHandler(async (req, res) => {
     delivered: 'order_delivered'
   };
 
-  await createNotification(order.user._id, {
-    type: notificationTypes[orderStatus] || 'general',
-    title: 'Order Status Updated',
-    message: `${statusMessages[orderStatus] || 'Your order status has been updated'} - #${order.orderNumber}`,
-    orderId: order._id,
-    orderNumber: order.orderNumber
-  });
+  if (order.user) {
+    await createNotification(order.user._id, {
+      type: notificationTypes[orderStatus] || 'general',
+      title: 'Order Status Updated',
+      message: `${statusMessages[orderStatus] || 'Your order status has been updated'} - #${order.orderNumber}`,
+      orderId: order._id,
+      orderNumber: order.orderNumber
+    });
+  }
 
   res.json({
     success: true,
@@ -662,13 +734,15 @@ exports.approveOrder = asyncHandler(async (req, res) => {
   await order.populate('items.product', 'name price image');
 
   // Create notification for user about order approval
-  await createNotification(order.user._id, {
-    type: 'order_approved',
-    title: 'Order Approved',
-    message: `Your order #${order.orderNumber} has been approved and confirmed`,
-    orderId: order._id,
-    orderNumber: order.orderNumber
-  });
+  if (order.user) {
+    await createNotification(order.user._id, {
+      type: 'order_approved',
+      title: 'Order Approved',
+      message: `Your order #${order.orderNumber} has been approved and confirmed`,
+      orderId: order._id,
+      orderNumber: order.orderNumber
+    });
+  }
 
   res.json({
     success: true,
@@ -709,13 +783,15 @@ exports.rejectOrder = asyncHandler(async (req, res) => {
   await order.populate('items.product', 'name price image');
 
   // Create notification for user about order rejection
-  await createNotification(order.user._id, {
-    type: 'order_rejected',
-    title: 'Order Rejected',
-    message: `Your order #${order.orderNumber} has been rejected. Reason: ${reason.trim()}`,
-    orderId: order._id,
-    orderNumber: order.orderNumber
-  });
+  if (order.user) {
+    await createNotification(order.user._id, {
+      type: 'order_rejected',
+      title: 'Order Rejected',
+      message: `Your order #${order.orderNumber} has been rejected. Reason: ${reason.trim()}`,
+      orderId: order._id,
+      orderNumber: order.orderNumber
+    });
+  }
 
   res.json({
     success: true,

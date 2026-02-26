@@ -191,6 +191,22 @@ const distributorSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+
+  // Plan type: subscription (existing), commission (new), or none (unapproved)
+  planType: {
+    type: String,
+    enum: ['subscription', 'commission', 'none'],
+    default: 'none'
+  },
+  commissionPlan: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CommissionPlan'
+  },
+  // Wallet lock: auto-set when commission wallet exceeds limit
+  isWalletLocked: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true

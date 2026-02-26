@@ -75,7 +75,9 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
       const pincodeDistributors = await Distributor.find({
         pincode: locationPincode,
         isApproved: true,
-        isActive: true
+        isActive: true,
+        isWalletLocked: { $ne: true },
+        planType: { $ne: 'none' }
       }).select('_id').lean();
 
       pincodeDistributors.forEach(d => {
@@ -90,7 +92,9 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
       const cityDistributors = await Distributor.find({
         city: { $regex: `^${escapedCity}$`, $options: 'i' },
         isApproved: true,
-        isActive: true
+        isActive: true,
+        isWalletLocked: { $ne: true },
+        planType: { $ne: 'none' }
       }).select('_id').lean();
 
       cityDistributors.forEach(d => {
@@ -107,7 +111,9 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
       const regionDistributors = await Distributor.find({
         pincode: { $regex: `^${pincodePrefix}` },
         isApproved: true,
-        isActive: true
+        isActive: true,
+        isWalletLocked: { $ne: true },
+        planType: { $ne: 'none' }
       }).select('_id').lean();
 
       regionDistributors.forEach(d => {
@@ -154,7 +160,9 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
     const distributorFilter = {
       businessName: { $regex: searchTerm, $options: 'i' },
       isApproved: true,
-      isActive: true
+      isActive: true,
+      isWalletLocked: { $ne: true },
+      planType: { $ne: 'none' }
     };
 
     // When location filtering is active, only match distributors that are also nearby
@@ -190,7 +198,7 @@ exports.getProductById = asyncHandler(async (req, res) => {
   const query = isObjectId ? { _id: param } : { slug: param };
 
   const product = await Product.findOne(query)
-    .populate('distributor', 'businessName email phone address city state rating slug');
+    .populate('distributor', 'businessName email phone address city state rating slug isApproved isActive planType isWalletLocked');
 
   if (!product) {
     throw new NotFoundError('Product not found');
@@ -199,6 +207,16 @@ exports.getProductById = asyncHandler(async (req, res) => {
   // Only show if active (or if user is the distributor/admin)
   if (!product.isActive && (!req.user || req.user._id.toString() !== product.distributor._id.toString())) {
     throw new NotFoundError('Product not found');
+  }
+
+  // Hide products from distributors with no plan or locked wallets (unless viewing own product)
+  const isOwnProduct = req.user && req.user._id.toString() === product.distributor._id.toString();
+  const isAdmin = req.user && req.user.role === 'admin';
+  if (!isOwnProduct && !isAdmin && product.distributor) {
+    const d = product.distributor;
+    if (!d.isApproved || !d.isActive || d.planType === 'none' || d.isWalletLocked) {
+      throw new NotFoundError('Product not found');
+    }
   }
 
   res.json({ success: true, product });
@@ -215,9 +233,19 @@ exports.getProductsByCategory = asyncHandler(async (req, res) => {
     throw new ValidationError('Invalid category');
   }
 
+  // Only show products from active, approved distributors with a valid plan
+  const eligibleDistributors = await Distributor.find({
+    isApproved: true,
+    isActive: true,
+    isWalletLocked: { $ne: true },
+    planType: { $ne: 'none' }
+  }).select('_id').lean();
+  const eligibleIds = eligibleDistributors.map(d => d._id);
+
   const products = await Product.find({
     category: categoryId,
     isActive: true,
+    distributor: { $in: eligibleIds },
     $expr: { $gte: ['$stock', '$minQuantity'] }
   }).populate('distributor', 'businessName city state slug');
 
@@ -230,8 +258,18 @@ exports.getProductsByCategory = asyncHandler(async (req, res) => {
 exports.getProductsByDistributor = asyncHandler(async (req, res) => {
   const { distributorId } = req.params;
 
+  // Support both ObjectID and slug
+  const isObjectId = /^[0-9a-fA-F]{24}$/.test(distributorId);
+  const lookupQuery = isObjectId ? { _id: distributorId } : { slug: distributorId };
+
+  // Check if distributor is eligible (active, approved, has a plan, not locked)
+  const dist = await Distributor.findOne(lookupQuery).select('_id isApproved isActive planType isWalletLocked').lean();
+  if (!dist || !dist.isApproved || !dist.isActive || dist.planType === 'none' || dist.isWalletLocked) {
+    return res.json({ success: true, count: 0, products: [] });
+  }
+
   const products = await Product.find({
-    distributor: distributorId,
+    distributor: dist._id,
     isActive: true,
     $expr: { $gte: ['$stock', '$minQuantity'] }
   }).populate('distributor', 'businessName email phone city state rating slug');

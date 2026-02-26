@@ -26,7 +26,7 @@ const protect = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     // Fetch user based on role — select only fields needed for auth checks
-    const authFields = 'name businessName email role phone isActive assignedRole isLocked failedLoginAttempts lastPasswordChange isApproved';
+    const authFields = 'name businessName email role phone isActive assignedRole isLocked failedLoginAttempts lastPasswordChange isApproved planType isWalletLocked';
     if (decoded.role === 'distributor') {
       req.user = await Distributor.findById(decoded.id).select(authFields).lean();
       req.userModel = 'Distributor';
@@ -51,17 +51,34 @@ const protect = async (req, res, next) => {
     }
 
     // SECURITY: Check if distributor is approved (only for distributors)
-    // Allow non-approved distributors to access subscription and profile endpoints
+    // Allow non-approved distributors to access subscription, commission, and profile endpoints
     if (decoded.role === 'distributor' && !req.user.isApproved) {
       const allowedPaths = [
         '/api/subscriptions',
+        '/api/commission',
         '/api/auth/profile',
         '/api/auth/logout'
       ];
       const isAllowedPath = allowedPaths.some(path => req.originalUrl.startsWith(path));
 
       if (!isAllowedPath) {
-        throw new AuthorizationError('Your distributor account is pending approval. Please purchase a subscription to activate your account.');
+        throw new AuthorizationError('Your distributor account is pending approval. Please purchase a subscription or select a commission plan to activate your account.');
+      }
+    }
+
+    // SECURITY: Check if distributor wallet is locked (commission plan only)
+    if (decoded.role === 'distributor' && req.user.isWalletLocked) {
+      const allowedWalletLockedPaths = [
+        '/api/commission/wallet',
+        '/api/commission/payment',
+        '/api/commission/transactions',
+        '/api/commission/dashboard',
+        '/api/auth/profile',
+        '/api/auth/logout'
+      ];
+      const isWalletAllowed = allowedWalletLockedPaths.some(p => req.originalUrl.startsWith(p));
+      if (!isWalletAllowed) {
+        throw new AuthorizationError('Your account is locked due to unpaid commission. Please clear your dues to continue.');
       }
     }
 

@@ -163,6 +163,10 @@ app.use('/api/subscriptions', require('./routes/subscription.routes'));
 app.use('/api/payments', require('./routes/webhook.routes'));
 app.use('/api/contact', require('./routes/contact.routes'));
 
+// Commission module routes
+app.use('/api/commission', require('./modules/commission/routes/commission.routes'));
+app.use('/api/admin/commission', require('./modules/commission/routes/commission-admin.routes'));
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({
@@ -230,7 +234,14 @@ const server = app.listen(PORT, () => {
     await sendRenewalReminders();
   });
 
-  console.log('Scheduled jobs: Subscription renewal (6 AM), Renewal reminders (10 AM)');
+  // Schedule wallet limit check job (runs every 6 hours)
+  cron.schedule('0 */6 * * *', async () => {
+    console.log('Running scheduled wallet limit check job...');
+    const { checkAllWallets } = require('./modules/commission/jobs/walletCheck.job');
+    await checkAllWallets();
+  });
+
+  console.log('Scheduled jobs: Subscription renewal (6 AM), Renewal reminders (10 AM), Wallet check (every 6h)');
 });
 
 // Graceful shutdown

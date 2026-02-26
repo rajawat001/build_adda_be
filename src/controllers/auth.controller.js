@@ -264,6 +264,9 @@ const getProfile = asyncHandler(async (req, res) => {
         description: user.description,
         rating: user.rating,
         reviewCount: user.reviewCount,
+        planType: user.planType,
+        isWalletLocked: user.isWalletLocked,
+        commissionPlan: user.commissionPlan,
         createdAt: user.createdAt
       }
     });

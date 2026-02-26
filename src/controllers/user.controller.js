@@ -6,7 +6,7 @@ const Distributor = require('../models/Distributor');
 // @access  Public
 exports.getAllDistributors = asyncHandler(async (req, res) => {
   const { search, page = 1, limit = 20 } = req.query;
-  const filters = { isApproved: true, isActive: true };
+  const filters = { isApproved: true, isActive: true, planType: { $ne: 'none' }, isWalletLocked: { $ne: true } };
 
   if (search && search.trim()) {
     const escaped = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -66,7 +66,9 @@ exports.getNearbyDistributors = asyncHandler(async (req, res) => {
     const pincodeResults = await Distributor.find({
       pincode: pincode,
       isApproved: true,
-      isActive: true
+      isActive: true,
+      planType: { $ne: 'none' },
+      isWalletLocked: { $ne: true }
     }).select(sensitiveFields).sort('-rating').lean();
 
     pincodeResults.forEach(d => {
@@ -81,7 +83,9 @@ exports.getNearbyDistributors = asyncHandler(async (req, res) => {
     const cityResults = await Distributor.find({
       city: { $regex: `^${escaped}$`, $options: 'i' },
       isApproved: true,
-      isActive: true
+      isActive: true,
+      planType: { $ne: 'none' },
+      isWalletLocked: { $ne: true }
     }).select(sensitiveFields).sort('-rating').lean();
 
     cityResults.forEach(d => {
@@ -98,7 +102,9 @@ exports.getNearbyDistributors = asyncHandler(async (req, res) => {
     const regionResults = await Distributor.find({
       pincode: { $regex: `^${pincodePrefix}` },
       isApproved: true,
-      isActive: true
+      isActive: true,
+      planType: { $ne: 'none' },
+      isWalletLocked: { $ne: true }
     }).select(sensitiveFields).sort('-rating').lean();
 
     regionResults.forEach(d => {
@@ -129,7 +135,9 @@ exports.getDistributorProfile = asyncHandler(async (req, res) => {
   const distributor = await Distributor.findOne({
     ...lookupQuery,
     isApproved: true,
-    isActive: true
+    isActive: true,
+    planType: { $ne: 'none' },
+    isWalletLocked: { $ne: true }
   }).select('-password -resetPasswordToken -resetPasswordExpiry -verificationToken -bankAccountNumber -bankIFSC -failedLoginAttempts -lockUntil');
 
   if (!distributor) {
