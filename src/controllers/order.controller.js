@@ -320,9 +320,20 @@ exports.checkPaymentStatus = asyncHandler(async (req, res) => {
     });
   }
 
-  // Payment failed
+  // Payment failed — cancel order and restore stock
   order.paymentStatus = 'failed';
+  order.orderStatus = 'cancelled';
   await order.save();
+
+  // Restore stock for each item
+  if (order.items && order.items.length > 0) {
+    for (const item of order.items) {
+      const productId = typeof item.product === 'object' ? item.product._id : item.product;
+      await Product.findByIdAndUpdate(productId, {
+        $inc: { stock: item.quantity }
+      });
+    }
+  }
 
   return res.json({
     success: false,
