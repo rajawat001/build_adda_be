@@ -129,6 +129,31 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
     // If no distributors found at all, don't filter — frontend handles "expanding" message
   }
 
+  // Exclude products from distributors that are not publicly visible
+  // (not approved, not active, no plan, or wallet locked)
+  const hiddenDistributors = await Distributor.find({
+    $or: [
+      { isApproved: { $ne: true } },
+      { isActive: { $ne: true } },
+      { planType: 'none' },
+      { isWalletLocked: true }
+    ]
+  }).select('_id').lean();
+
+  if (hiddenDistributors.length > 0) {
+    const hiddenIds = hiddenDistributors.map(d => d._id);
+    if (filters.distributor && filters.distributor.$in) {
+      // Location filter already applied — remove hidden from the allowed list
+      const hiddenSet = new Set(hiddenIds.map(id => id.toString()));
+      filters.distributor.$in = filters.distributor.$in.filter(
+        id => !hiddenSet.has(id.toString())
+      );
+    } else if (!filters.distributor) {
+      // No distributor filter yet — exclude hidden distributors
+      filters.distributor = { $nin: hiddenIds };
+    }
+  }
+
   // Validate and limit pagination
   const pageNum = Math.max(1, parseInt(page));
   const limitNum = Math.min(100, Math.max(1, parseInt(limit))); // Max 100 items per request for infinite scroll
