@@ -5,6 +5,8 @@ const Order = require('../models/Order');
 const Transaction = require('../models/Transaction');
 const Coupon = require('../models/Coupon');
 const Role = require('../models/Role');
+const Subscription = require('../models/Subscription');
+const CommissionWallet = require('../modules/commission/models/CommissionWallet');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, NotFoundError, ConflictError } = require('../utils/errors');
 const paymentService = require('../services/payment.service');
@@ -339,6 +341,70 @@ exports.updateDistributor = asyncHandler(async (req, res) => {
     message: 'Distributor updated successfully',
     distributor
   });
+});
+
+// @desc    Get distributor details with plan info and products
+// @route   GET /api/admin/distributors/:distributorId/details
+// @access  Private (Admin only)
+exports.getDistributorDetails = asyncHandler(async (req, res) => {
+  const { distributorId } = req.params;
+
+  const distributor = await Distributor.findById(distributorId).select('-password');
+
+  if (!distributor) {
+    throw new NotFoundError('Distributor not found');
+  }
+
+  // Build planDetails based on planType
+  let planDetails = { planType: distributor.planType || 'none' };
+
+  if (distributor.planType === 'subscription') {
+    const subscription = await Subscription.findOne({ distributor: distributorId })
+      .populate('plan', 'name duration durationInDays realPrice offerPrice')
+      .sort('-createdAt');
+    if (subscription) {
+      planDetails.subscription = {
+        planName: subscription.plan?.name,
+        duration: subscription.plan?.duration,
+        status: subscription.status,
+        paymentStatus: subscription.paymentStatus,
+        startDate: subscription.startDate,
+        endDate: subscription.endDate,
+        amount: subscription.amount,
+        finalAmount: subscription.finalAmount,
+        autoRenew: subscription.autoRenew,
+        autopayEnabled: subscription.autopay?.enabled || false
+      };
+    }
+  }
+
+  if (distributor.planType === 'commission') {
+    const wallet = await CommissionWallet.findOne({ distributor: distributorId })
+      .populate('commissionPlan', 'name type value walletLimit');
+    if (wallet) {
+      planDetails.commission = {
+        planName: wallet.commissionPlan?.name,
+        commissionType: wallet.commissionPlan?.type,
+        commissionValue: wallet.commissionPlan?.value,
+        walletBalance: wallet.balance,
+        totalCharged: wallet.totalCommissionCharged,
+        totalPaid: wallet.totalCommissionPaid,
+        totalOrders: wallet.totalOrders,
+        walletLimit: wallet.commissionPlan?.walletLimit,
+        walletStatus: wallet.status,
+        isLimitExceeded: wallet.isLimitExceeded,
+        graceExpiresAt: wallet.graceExpiresAt
+      };
+    }
+  }
+
+  // Fetch products
+  const products = await Product.find({ distributor: distributorId })
+    .select('name slug price realPrice stock category images isActive unitType')
+    .sort('-createdAt')
+    .limit(50);
+
+  res.json({ success: true, distributor, planDetails, products });
 });
 
 // @desc    Delete distributor and associated products

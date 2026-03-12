@@ -43,6 +43,7 @@ router.get('/distributors/stats', adminController.getDistributorStats);
 router.post('/distributors/bulk-approve', adminController.bulkApproveDistributors);
 router.post('/distributors/bulk-reject', adminController.bulkRejectDistributors);
 router.delete('/distributors/bulk-delete', adminController.bulkDeleteDistributors);
+router.get('/distributors/:distributorId/details', adminController.getDistributorDetails);
 router.put('/distributors/:distributorId/approve', adminController.approveDistributor);
 router.put('/distributors/:distributorId', adminController.updateDistributor);
 router.delete('/distributors/:distributorId', adminController.deleteDistributor);
