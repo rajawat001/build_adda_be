@@ -56,7 +56,7 @@ const contactSchema = new mongoose.Schema({
   timestamps: true
 });
 
-contactSchema.index({ email: 1 });
+// email already indexed via unique:true in schema
 contactSchema.index({ status: 1 });
 contactSchema.index({ lastMessageAt: -1 });
 
