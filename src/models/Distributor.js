@@ -234,9 +234,8 @@ const distributorSchema = new mongoose.Schema({
 });
 
 // INDEXES for performance optimization
-distributorSchema.index({ slug: 1 });
+// slug and email already indexed via unique:true/index:true in schema
 distributorSchema.index({ location: '2dsphere' });
-distributorSchema.index({ email: 1 });
 distributorSchema.index({ isApproved: 1, isActive: 1 });
 distributorSchema.index({ pincode: 1 });
 distributorSchema.index({ rating: -1 });

@@ -268,7 +268,7 @@ orderSchema.pre('validate', function(next) {
 // INDEXES for performance optimization
 orderSchema.index({ user: 1, createdAt: -1 });
 orderSchema.index({ distributor: 1, orderStatus: 1 });
-orderSchema.index({ orderNumber: 1 });
+// orderNumber already indexed via unique:true in schema
 orderSchema.index({ createdAt: -1 });
 orderSchema.index({ paymentStatus: 1, orderStatus: 1 });
 orderSchema.index({ guestEmail: 1, isGuestOrder: 1 });

@@ -99,7 +99,7 @@ const emailTemplateSchema = new mongoose.Schema({
 });
 
 // Index for faster queries
-emailTemplateSchema.index({ slug: 1 });
+// slug already indexed via unique:true in schema
 emailTemplateSchema.index({ isActive: 1 });
 emailTemplateSchema.index({ category: 1 });
 

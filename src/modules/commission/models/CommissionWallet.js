@@ -54,7 +54,7 @@ const commissionWalletSchema = new mongoose.Schema({
   timestamps: true
 });
 
-commissionWalletSchema.index({ distributor: 1 });
+// distributor already indexed via unique:true in schema
 commissionWalletSchema.index({ status: 1 });
 commissionWalletSchema.index({ isLimitExceeded: 1, graceExpiresAt: 1 });
 

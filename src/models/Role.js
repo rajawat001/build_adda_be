@@ -64,7 +64,7 @@ const roleSchema = new mongoose.Schema({
 });
 
 // Index for faster queries
-roleSchema.index({ name: 1 });
+// name already indexed via unique:true in schema
 roleSchema.index({ isActive: 1 });
 
 // Method to check if role has specific permission

@@ -74,8 +74,7 @@ categorySchema.pre('save', function(next) {
 });
 
 // Index for faster queries
-categorySchema.index({ name: 1 });
-categorySchema.index({ slug: 1 });
+// name and slug already indexed via unique:true in schema
 categorySchema.index({ isActive: 1 });
 categorySchema.index({ parent: 1 });
 categorySchema.index({ order: 1 });

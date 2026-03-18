@@ -158,7 +158,7 @@ const userSchema = new mongoose.Schema({
 
 // INDEXES for performance optimization
 userSchema.index({ location: '2dsphere' });
-userSchema.index({ email: 1 });
+// email already indexed via unique:true in schema
 userSchema.index({ role: 1, isActive: 1 });
 userSchema.index({ 'addresses.pincode': 1 });
 

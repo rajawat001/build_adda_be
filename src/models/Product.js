@@ -141,7 +141,7 @@ productSchema.pre('save', async function(next) {
   next();
 });
 
-productSchema.index({ slug: 1 });
+// slug already indexed via unique:true/index:true in schema
 productSchema.index({ category: 1 });
 productSchema.index({ distributor: 1 });
 productSchema.index({ name: 'text', description: 'text' });
