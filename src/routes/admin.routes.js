@@ -4,6 +4,7 @@ const adminController = require('../controllers/admin.controller');
 const adminSubscriptionController = require('../controllers/adminSubscription.controller');
 const contactController = require('../controllers/contact.controller');
 const roleController = require('../controllers/role.controller');
+const liveMonitorController = require('../controllers/liveMonitor.controller');
 const authMiddleware = require('../middleware/auth.middleware');
 const roleMiddleware = require('../middleware/role.middleware');
 
@@ -96,6 +97,10 @@ router.get('/invoices', adminSubscriptionController.getAllInvoices);
 router.get('/invoices/:invoiceId', adminSubscriptionController.getInvoice);
 router.get('/distributors/:distributorId/invoices', adminSubscriptionController.getDistributorInvoices);
 router.post('/subscriptions/:subscriptionId/generate-invoice', adminSubscriptionController.regenerateInvoice);
+
+// Live monitor
+router.get('/live-monitor', liveMonitorController.getLiveMonitorData);
+router.get('/live-monitor/stats', liveMonitorController.getLiveMonitorStats);
 
 // Contact messages management
 router.get('/contacts/stats', contactController.getContactStats);

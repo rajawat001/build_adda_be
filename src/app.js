@@ -136,6 +136,9 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Cookie parser
 app.use(cookieParser());
 
+// Visitor tracking (lightweight, non-blocking - no DB calls)
+app.use(require('./middleware/visitorTracking.middleware'));
+
 // SECURITY: Sanitize data to prevent NoSQL injection
 app.use(mongoSanitize({
   replaceWith: '_',  // Replace prohibited characters with underscore
