@@ -475,6 +475,85 @@ exports.deleteDistributor = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Toggle temporary disable/enable for a distributor
+// @route   PUT /api/admin/distributors/:distributorId/toggle-disable
+// @access  Private (Admin only)
+exports.toggleDistributorDisable = asyncHandler(async (req, res) => {
+  const { distributorId } = req.params;
+  const { action, reason } = req.body;
+
+  if (!['disable', 'enable'].includes(action)) {
+    throw new ValidationError('Action must be "disable" or "enable"');
+  }
+
+  const distributor = await Distributor.findById(distributorId);
+  if (!distributor) {
+    throw new NotFoundError('Distributor not found');
+  }
+
+  if (action === 'disable') {
+    if (distributor.tempDisabled) {
+      throw new ConflictError('Distributor is already temporarily disabled');
+    }
+
+    // Disable distributor
+    distributor.isActive = false;
+    distributor.tempDisabled = true;
+    distributor.tempDisabledAt = new Date();
+    distributor.tempDisabledReason = reason || 'Account temporarily disabled by admin';
+    distributor.tempDisabledBy = req.user._id;
+    await distributor.save();
+
+    // Pause active subscription if exists
+    const activeSubscription = await Subscription.findOne({
+      distributor: distributorId,
+      status: 'active',
+      pausedAt: null
+    });
+    if (activeSubscription) {
+      activeSubscription.pausedAt = new Date();
+      await activeSubscription.save();
+    }
+
+    res.json({
+      success: true,
+      message: `Distributor "${distributor.businessName}" has been temporarily disabled`
+    });
+
+  } else {
+    // Enable
+    if (!distributor.tempDisabled) {
+      throw new ConflictError('Distributor is not temporarily disabled');
+    }
+
+    distributor.isActive = true;
+    distributor.tempDisabled = false;
+    distributor.tempEnabledAt = new Date();
+    await distributor.save();
+
+    // Resume paused subscription - extend endDate by paused days
+    const pausedSubscription = await Subscription.findOne({
+      distributor: distributorId,
+      pausedAt: { $ne: null }
+    });
+    if (pausedSubscription) {
+      const pausedMs = Date.now() - pausedSubscription.pausedAt.getTime();
+      const pausedDays = Math.ceil(pausedMs / (1000 * 60 * 60 * 24));
+      pausedSubscription.endDate = new Date(pausedSubscription.endDate.getTime() + pausedDays * 24 * 60 * 60 * 1000);
+      pausedSubscription.totalPausedDays = (pausedSubscription.totalPausedDays || 0) + pausedDays;
+      pausedSubscription.pausedAt = null;
+      await pausedSubscription.save();
+    }
+
+    // Commission wallet: no changes needed - balance stays as-is
+
+    res.json({
+      success: true,
+      message: `Distributor "${distributor.businessName}" has been re-enabled`
+    });
+  }
+});
+
 // @desc    Get all products with pagination
 // @route   GET /api/admin/products
 // @access  Private (Admin only)

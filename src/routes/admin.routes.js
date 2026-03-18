@@ -46,6 +46,7 @@ router.delete('/distributors/bulk-delete', adminController.bulkDeleteDistributor
 router.get('/distributors/:distributorId/details', adminController.getDistributorDetails);
 router.put('/distributors/:distributorId/approve', adminController.approveDistributor);
 router.put('/distributors/:distributorId', adminController.updateDistributor);
+router.put('/distributors/:distributorId/toggle-disable', adminController.toggleDistributorDisable);
 router.delete('/distributors/:distributorId', adminController.deleteDistributor);
 
 // Product management

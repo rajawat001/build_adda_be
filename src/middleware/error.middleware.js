@@ -55,6 +55,11 @@ const errorHandler = (err, req, res, next) => {
     error: message
   };
 
+  // Pass through custom error codes (e.g., TEMP_DISABLED)
+  if (err.errorCode) {
+    response.errorCode = err.errorCode;
+  }
+
   // Add validation details if available (for express-validator errors)
   if (err.details && Array.isArray(err.details)) {
     response.validationErrors = err.details;

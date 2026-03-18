@@ -267,6 +267,8 @@ const getProfile = asyncHandler(async (req, res) => {
         planType: user.planType,
         isWalletLocked: user.isWalletLocked,
         commissionPlan: user.commissionPlan,
+        tempDisabled: user.tempDisabled || false,
+        tempDisabledReason: user.tempDisabledReason || null,
         createdAt: user.createdAt
       }
     });

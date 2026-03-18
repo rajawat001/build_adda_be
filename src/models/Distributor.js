@@ -212,7 +212,23 @@ const distributorSchema = new mongoose.Schema({
   isWalletLocked: {
     type: Boolean,
     default: false
-  }
+  },
+
+  // Temporary disable by admin
+  tempDisabled: {
+    type: Boolean,
+    default: false
+  },
+  tempDisabledAt: Date,
+  tempDisabledReason: {
+    type: String,
+    maxlength: [500, 'Reason cannot exceed 500 characters']
+  },
+  tempDisabledBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  tempEnabledAt: Date
 }, {
   timestamps: true
 });

@@ -103,6 +103,15 @@ const subscriptionSchema = new mongoose.Schema({
     // Number of failed renewal attempts
     failedAttempts: { type: Number, default: 0 }
   },
+  // Pause tracking for temp-disable
+  pausedAt: {
+    type: Date,
+    default: null
+  },
+  totalPausedDays: {
+    type: Number,
+    default: 0
+  },
   cancelledAt: {
     type: Date
   },

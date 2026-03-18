@@ -26,7 +26,7 @@ const protect = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     // Fetch user based on role — select only fields needed for auth checks
-    const authFields = 'name businessName email role phone isActive assignedRole isLocked failedLoginAttempts lastPasswordChange isApproved planType isWalletLocked';
+    const authFields = 'name businessName email role phone isActive assignedRole isLocked failedLoginAttempts lastPasswordChange isApproved planType isWalletLocked tempDisabled tempDisabledReason';
     if (decoded.role === 'distributor') {
       req.user = await Distributor.findById(decoded.id).select(authFields).lean();
       req.userModel = 'Distributor';
@@ -42,7 +42,18 @@ const protect = async (req, res, next) => {
 
     // SECURITY: Check if user is active
     if (!req.user.isActive) {
-      throw new AuthorizationError('Your account has been deactivated');
+      if (req.user.tempDisabled) {
+        // Allow temp-disabled distributors to access profile and logout only
+        const allowedTempDisabledPaths = ['/api/auth/profile', '/api/auth/logout'];
+        const isAllowed = allowedTempDisabledPaths.some(p => req.originalUrl.startsWith(p));
+        if (!isAllowed) {
+          const err = new AuthorizationError('Your account has been temporarily disabled by the administrator. Please contact support for more information.');
+          err.errorCode = 'TEMP_DISABLED';
+          throw err;
+        }
+      } else {
+        throw new AuthorizationError('Your account has been deactivated');
+      }
     }
 
     // SECURITY: Check if account is locked
