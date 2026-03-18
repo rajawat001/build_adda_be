@@ -62,9 +62,15 @@ const couponSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Indexes for fast queries
+couponSchema.index({ code: 1 });
+couponSchema.index({ isActive: 1, expiryDate: 1 });
+couponSchema.index({ createdBy: 1 });
+couponSchema.index({ applicableFor: 1, isActive: 1 });
+
 couponSchema.methods.isValid = function() {
-  return this.isActive && 
-         this.expiryDate > new Date() && 
+  return this.isActive &&
+         this.expiryDate > new Date() &&
          (this.usageLimit === null || this.usedCount < this.usageLimit);
 };
 

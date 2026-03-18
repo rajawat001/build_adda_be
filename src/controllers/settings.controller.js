@@ -1,4 +1,8 @@
 const Settings = require('../models/Settings');
+const User = require('../models/User');
+const Distributor = require('../models/Distributor');
+const Product = require('../models/Product');
+const Order = require('../models/Order');
 
 // @desc    Get system settings
 // @route   GET /api/admin/settings
@@ -82,7 +86,11 @@ exports.getSettings = async (req, res) => {
 // @access  Private/Admin
 exports.updateSettings = async (req, res) => {
   try {
+    const cache = require('../utils/cache');
     const settingsData = req.body;
+
+    // Invalidate public settings cache on update
+    cache.delete('public_settings');
 
     // Validate critical settings
     if (settingsData.taxRate && (settingsData.taxRate < 0 || settingsData.taxRate > 100)) {
@@ -290,6 +298,12 @@ exports.testEmailConfig = async (req, res) => {
 // @access  Public
 exports.getPublicSettings = async (req, res) => {
   try {
+    const cache = require('../utils/cache');
+    const cached = cache.get('public_settings');
+    if (cached) {
+      return res.json({ success: true, settings: cached });
+    }
+
     const settings = await Settings.findOne();
 
     if (!settings) {
@@ -311,29 +325,69 @@ exports.getPublicSettings = async (req, res) => {
     }
 
     // Return only public settings (no sensitive data)
-    res.json({
-      success: true,
-      settings: {
-        siteName: settings.siteName,
-        siteDescription: settings.siteDescription,
-        currency: settings.currency,
-        taxEnabled: settings.taxEnabled,
-        taxRate: settings.taxRate,
-        taxCalculationMethod: settings.taxCalculationMethod,
-        codEnabled: settings.codEnabled,
-        minOrderAmount: settings.minOrderAmount,
-        freeShippingThreshold: settings.freeShippingThreshold,
-        defaultShippingCharge: settings.defaultShippingCharge,
-        maintenanceMode: settings.maintenanceMode,
-        serviceAreas: settings.serviceAreas || [{ state: 'Rajasthan', cities: ['Jaipur'] }]
-      }
-    });
+    const publicSettings = {
+      siteName: settings.siteName,
+      siteDescription: settings.siteDescription,
+      currency: settings.currency,
+      taxEnabled: settings.taxEnabled,
+      taxRate: settings.taxRate,
+      taxCalculationMethod: settings.taxCalculationMethod,
+      codEnabled: settings.codEnabled,
+      minOrderAmount: settings.minOrderAmount,
+      freeShippingThreshold: settings.freeShippingThreshold,
+      defaultShippingCharge: settings.defaultShippingCharge,
+      maintenanceMode: settings.maintenanceMode,
+      serviceAreas: settings.serviceAreas || [{ state: 'Rajasthan', cities: ['Jaipur'] }]
+    };
+
+    // Cache for 30 minutes (settings rarely change)
+    cache.set('public_settings', publicSettings, 1800);
+
+    res.json({ success: true, settings: publicSettings });
   } catch (error) {
     console.error('Get public settings error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch public settings',
       error: error.message
+    });
+  }
+};
+
+// @desc    Get platform stats for public pages (about page etc.)
+// @route   GET /api/settings/platform-stats
+// @access  Public
+exports.getPlatformStats = async (req, res) => {
+  try {
+    const cache = require('../utils/cache');
+    const cached = cache.get('platform_stats');
+    if (cached) {
+      return res.json({ success: true, stats: cached });
+    }
+
+    const [totalUsers, totalDistributors, totalProducts, citiesServed] = await Promise.all([
+      User.countDocuments({ role: 'user' }),
+      Distributor.countDocuments({ isVerified: true }),
+      Product.countDocuments({ isActive: true }),
+      Distributor.distinct('city', { isVerified: true })
+    ]);
+
+    const stats = {
+      totalCustomers: totalUsers,
+      totalDistributors,
+      totalProducts,
+      citiesServed: citiesServed.length || 1
+    };
+
+    // Cache for 30 minutes
+    cache.set('platform_stats', stats, 1800);
+
+    res.json({ success: true, stats });
+  } catch (error) {
+    console.error('Get platform stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch platform stats'
     });
   }
 };

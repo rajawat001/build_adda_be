@@ -127,13 +127,13 @@ const optionalAuth = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     if (decoded.role === 'distributor') {
-      req.user = await Distributor.findById(decoded.id).select('-password');
+      req.user = await Distributor.findById(decoded.id).select('-password').lean();
     } else {
-      req.user = await User.findById(decoded.id).select('-password');
+      req.user = await User.findById(decoded.id).select('-password').lean();
     }
 
     if (req.user && req.user.isActive) {
-      req.user.role = decoded.role;  // Set role on req.user object
+      req.user.role = decoded.role;
       req.userRole = decoded.role;
       req.userModel = decoded.role === 'distributor' ? 'Distributor' : 'User';
     }

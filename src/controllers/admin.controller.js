@@ -49,13 +49,25 @@ exports.getAdminUsers = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/stats
 // @access  Private (Admin only)
 exports.getAdminStats = asyncHandler(async (req, res) => {
+  const cache = require('../utils/cache');
+  const CommissionTransaction = require('../modules/commission/models/CommissionTransaction');
+
+  // Check cache first (3 minute TTL)
+  const cached = cache.get('admin_stats');
+  if (cached) {
+    return res.json({ success: true, stats: cached });
+  }
+
   // Run all queries in parallel for better performance
   const [
     totalUsers,
     totalDistributors,
     totalProducts,
     totalOrders,
-    revenueResult
+    revenueResult,
+    commissionRevenueResult,
+    subscriptionRevenueResult,
+    totalSales
   ] = await Promise.all([
     User.countDocuments({ role: 'user' }),
     Distributor.countDocuments(),
@@ -71,20 +83,52 @@ exports.getAdminStats = asyncHandler(async (req, res) => {
         }
       },
       { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-    ])
+    ]),
+    // Revenue from commission (sum of commission_charge transactions)
+    CommissionTransaction.aggregate([
+      {
+        $match: {
+          type: 'commission_charge',
+          status: 'completed'
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]).catch(() => []),
+    // Revenue from subscriptions (sum of paid subscriptions)
+    Subscription.aggregate([
+      {
+        $match: {
+          paymentStatus: 'paid'
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]).catch(() => []),
+    // Total sales = orders that are delivered by distributors
+    Order.countDocuments({ orderStatus: 'delivered' })
   ]);
 
   const totalRevenue = revenueResult[0]?.total || 0;
+  const commissionRevenue = commissionRevenueResult[0]?.total || 0;
+  const subscriptionRevenue = subscriptionRevenueResult[0]?.total || 0;
+
+  const stats = {
+    totalRevenue,
+    commissionRevenue,
+    subscriptionRevenue,
+    totalCombinedRevenue: commissionRevenue + subscriptionRevenue,
+    totalOrders,
+    totalUsers,
+    totalDistributors,
+    totalProducts,
+    totalSales
+  };
+
+  // Cache for 3 minutes
+  cache.set('admin_stats', stats, 180);
 
   res.json({
     success: true,
-    stats: {
-      totalRevenue,
-      totalOrders,
-      totalUsers,
-      totalDistributors,
-      totalProducts
-    }
+    stats
   });
 });
 

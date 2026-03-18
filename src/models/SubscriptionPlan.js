@@ -47,6 +47,10 @@ const subscriptionPlanSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Indexes for fast queries
+subscriptionPlanSchema.index({ isActive: 1 });
+subscriptionPlanSchema.index({ duration: 1, isActive: 1 });
+
 // Calculate discount percentage
 subscriptionPlanSchema.pre('save', function(next) {
   if (this.realPrice > 0) {

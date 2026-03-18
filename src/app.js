@@ -112,6 +112,23 @@ const otpLimiter = rateLimit({
 });
 app.use('/api/auth/otp', otpLimiter);
 
+// Rate limiter for order creation - only POST requests (20 per 15 min per IP)
+const orderCreateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === 'development' ? 500 : 20,
+  message: 'Too many order requests, please try again later',
+  skip: (req) => req.method !== 'POST'
+});
+app.use('/api/orders', orderCreateLimiter);
+
+// Rate limiter for payment endpoints (10 per 15 min per IP)
+const paymentLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === 'development' ? 500 : 10,
+  message: 'Too many payment requests, please try again later'
+});
+app.use('/api/commission/payment', paymentLimiter);
+
 // Body parser middleware with size limits
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -153,6 +170,7 @@ app.use('/api/admin/email-templates', require('./routes/emailTemplate.routes'));
 app.use('/api/admin/reviews', require('./routes/review.routes'));
 app.use('/api/admin/activity-logs', require('./routes/activityLog.routes'));
 app.get('/api/settings/public', require('./controllers/settings.controller').getPublicSettings);
+app.get('/api/settings/platform-stats', require('./controllers/settings.controller').getPlatformStats);
 app.use('/api/admin/settings', require('./routes/settings.routes'));
 app.use('/api/admin/export', require('./routes/export.routes'));
 app.use('/api/admin/import', require('./routes/export.routes'));
