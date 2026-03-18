@@ -270,17 +270,63 @@ exports.getAllDistributors = asyncHandler(async (req, res) => {
     ];
   }
 
-  const distributors = await Distributor.find(filter)
-    .select('-password')
-    .sort('-createdAt')
-    .limit(limitNum)
-    .skip((pageNum - 1) * limitNum);
+  const [distributors, total] = await Promise.all([
+    Distributor.find(filter)
+      .select('-password')
+      .sort('-createdAt')
+      .limit(limitNum)
+      .skip((pageNum - 1) * limitNum)
+      .lean(),
+    Distributor.countDocuments(filter)
+  ]);
 
-  const total = await Distributor.countDocuments(filter);
+  // Fetch product counts, order counts, and revenue for each distributor in bulk
+  const distributorIds = distributors.map(d => d._id);
+
+  const [productCounts, orderStats] = await Promise.all([
+    // Product count per distributor
+    Product.aggregate([
+      { $match: { distributor: { $in: distributorIds } } },
+      { $group: { _id: '$distributor', count: { $sum: 1 } } }
+    ]),
+    // Order count and revenue per distributor
+    Order.aggregate([
+      { $match: { distributor: { $in: distributorIds } } },
+      {
+        $group: {
+          _id: '$distributor',
+          orderCount: { $sum: 1 },
+          totalRevenue: {
+            $sum: {
+              $cond: [
+                { $in: ['$orderStatus', ['delivered']] },
+                '$totalAmount',
+                0
+              ]
+            }
+          }
+        }
+      }
+    ])
+  ]);
+
+  // Map counts to distributors
+  const productCountMap = {};
+  productCounts.forEach(p => { productCountMap[p._id.toString()] = p.count; });
+
+  const orderStatsMap = {};
+  orderStats.forEach(o => { orderStatsMap[o._id.toString()] = { orderCount: o.orderCount, totalRevenue: o.totalRevenue }; });
+
+  const enrichedDistributors = distributors.map(d => ({
+    ...d,
+    productCount: productCountMap[d._id.toString()] || 0,
+    orderCount: orderStatsMap[d._id.toString()]?.orderCount || 0,
+    totalRevenue: orderStatsMap[d._id.toString()]?.totalRevenue || 0
+  }));
 
   res.json({
     success: true,
-    distributors,
+    distributors: enrichedDistributors,
     pagination: {
       page: pageNum,
       limit: limitNum,
