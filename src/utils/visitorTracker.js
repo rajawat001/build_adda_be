@@ -21,6 +21,56 @@ function simpleHash(str) {
   return hash.toString(36);
 }
 
+// Detect if access is from browser, app (WebView), bot, API client, etc.
+function detectAccessSource(ua, browser) {
+  if (!ua) return { source: 'unknown', app: '' };
+  const uaLower = ua.toLowerCase();
+
+  // API clients / tools
+  if (uaLower.includes('postman')) return { source: 'api-client', app: 'Postman' };
+  if (uaLower.includes('insomnia')) return { source: 'api-client', app: 'Insomnia' };
+  if (uaLower.startsWith('curl')) return { source: 'api-client', app: 'cURL' };
+  if (uaLower.includes('httpie')) return { source: 'api-client', app: 'HTTPie' };
+  if (uaLower.includes('axios') || uaLower.includes('node-fetch') || uaLower.includes('got/')) {
+    return { source: 'api-client', app: 'Script/Bot' };
+  }
+  if (uaLower.includes('python-requests') || uaLower.includes('python-urllib')) {
+    return { source: 'api-client', app: 'Python Script' };
+  }
+
+  // Bots & crawlers
+  if (uaLower.includes('googlebot')) return { source: 'bot', app: 'Googlebot' };
+  if (uaLower.includes('bingbot')) return { source: 'bot', app: 'Bingbot' };
+  if (uaLower.includes('yandexbot')) return { source: 'bot', app: 'YandexBot' };
+  if (uaLower.includes('facebookexternalhit')) return { source: 'bot', app: 'Facebook Crawler' };
+  if (uaLower.includes('twitterbot')) return { source: 'bot', app: 'Twitter Bot' };
+  if (uaLower.includes('whatsapp')) return { source: 'bot', app: 'WhatsApp Preview' };
+  if (uaLower.includes('telegrambot')) return { source: 'bot', app: 'Telegram Bot' };
+  if (uaLower.includes('bot') || uaLower.includes('crawler') || uaLower.includes('spider')) {
+    return { source: 'bot', app: 'Bot/Crawler' };
+  }
+
+  // In-app browsers (WebView) — social media & messaging apps
+  if (uaLower.includes('instagram')) return { source: 'in-app', app: 'Instagram' };
+  if (uaLower.includes('fbav') || uaLower.includes('fban')) return { source: 'in-app', app: 'Facebook App' };
+  if (uaLower.includes('snapchat')) return { source: 'in-app', app: 'Snapchat' };
+  if (uaLower.includes('twitter') && !uaLower.includes('bot')) return { source: 'in-app', app: 'Twitter/X App' };
+  if (uaLower.includes('linkedin')) return { source: 'in-app', app: 'LinkedIn App' };
+  if (uaLower.includes('pinterest')) return { source: 'in-app', app: 'Pinterest App' };
+  if (uaLower.includes('telegram') && !uaLower.includes('bot')) return { source: 'in-app', app: 'Telegram' };
+
+  // Generic WebView detection (Android/iOS)
+  if (uaLower.includes('wv') && uaLower.includes('android')) return { source: 'in-app', app: 'Android WebView' };
+  if ((uaLower.includes('iphone') || uaLower.includes('ipad')) &&
+      !uaLower.includes('safari') && uaLower.includes('applewebkit')) {
+    return { source: 'in-app', app: 'iOS WebView' };
+  }
+
+  // Regular browser
+  const browserName = browser?.name || 'Unknown';
+  return { source: 'browser', app: browserName };
+}
+
 function isPrivateIP(ip) {
   if (!ip) return true;
   return ip === '127.0.0.1' || ip === '::1' || ip === 'localhost' ||
@@ -103,6 +153,7 @@ function trackVisit({ ip, userAgent, userId, userRole, userName, userEmail, path
   const browser = parser.getBrowser();
   const os = parser.getOS();
   const device = parser.getDevice();
+  const accessSource = detectAccessSource(userAgent, browser);
 
   // Get cached geo or trigger lookup
   const geo = geoCache.get(ip);
@@ -115,6 +166,8 @@ function trackVisit({ ip, userAgent, userId, userRole, userName, userEmail, path
     deviceType: device.type || 'desktop',
     deviceVendor: device.vendor || '',
     deviceModel: device.model || '',
+    accessSource: accessSource.source,
+    accessApp: accessSource.app,
     userId: userId || null,
     userType: userRole || 'guest',
     userName: userName || '',
