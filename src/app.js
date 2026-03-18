@@ -77,7 +77,7 @@ app.use(cors({
   },
   credentials: true, // CRITICAL: Allow cookies to be sent
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'x-client-real-ip', 'x-client-city', 'x-client-state', 'x-client-country'],
   exposedHeaders: ['Set-Cookie']
 }));
 

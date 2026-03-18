@@ -1,11 +1,8 @@
 const UAParser = require('ua-parser-js');
-const http = require('http');
 
 // In-memory visitor tracking
 const visitors = new Map();
-const geoCache = new Map(); // IP → { city, country, cachedAt }
 
-const GEO_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 const INACTIVE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 const SUSPICIOUS_THRESHOLD = 100; // requests per 5 min
 const SUSPICIOUS_WINDOW = 5 * 60 * 1000; // 5 minutes
@@ -23,7 +20,7 @@ function simpleHash(str) {
 
 // Detect if access is from browser, app (WebView), bot, API client, etc.
 function detectAccessSource(ua, browser) {
-  if (!ua) return { source: 'unknown', app: '' };
+  if (!ua || ua.trim() === '') return { source: 'unknown', app: 'No User-Agent (Bot/Script)' };
   const uaLower = ua.toLowerCase();
 
   // API clients / tools
@@ -71,59 +68,7 @@ function detectAccessSource(ua, browser) {
   return { source: 'browser', app: browserName };
 }
 
-function isPrivateIP(ip) {
-  if (!ip) return true;
-  return ip === '127.0.0.1' || ip === '::1' || ip === 'localhost' ||
-    ip.startsWith('10.') || ip.startsWith('192.168.') ||
-    ip.startsWith('172.16.') || ip.startsWith('172.17.') ||
-    ip.startsWith('172.18.') || ip.startsWith('172.19.') ||
-    ip.startsWith('172.2') || ip.startsWith('172.3') ||
-    ip.startsWith('::ffff:127.') || ip.startsWith('::ffff:10.') ||
-    ip.startsWith('::ffff:192.168.');
-}
-
-// Async geo lookup - fire and forget, results cached
-function lookupGeo(ip) {
-  if (isPrivateIP(ip)) return;
-
-  const cached = geoCache.get(ip);
-  if (cached && (Date.now() - cached.cachedAt) < GEO_CACHE_TTL) return;
-
-  // Mark as pending to avoid duplicate requests
-  geoCache.set(ip, { city: 'Looking up...', state: '', country: '', cachedAt: Date.now() });
-
-  const req = http.get(`http://ip-api.com/json/${ip}?fields=city,regionName,country,status`, (res) => {
-    let data = '';
-    res.on('data', chunk => { data += chunk; });
-    res.on('end', () => {
-      try {
-        const parsed = JSON.parse(data);
-        if (parsed.status === 'success') {
-          geoCache.set(ip, {
-            city: parsed.city || '',
-            state: parsed.regionName || '',
-            country: parsed.country || '',
-            cachedAt: Date.now()
-          });
-          // Update any active visitors with this IP
-          for (const [, visitor] of visitors) {
-            if (visitor.ip === ip) {
-              visitor.city = parsed.city || '';
-              visitor.state = parsed.regionName || '';
-              visitor.country = parsed.country || '';
-            }
-          }
-        }
-      } catch (e) {
-        // Silently fail - geo is best effort
-      }
-    });
-  });
-  req.on('error', () => {}); // Silently fail
-  req.setTimeout(5000, () => req.destroy());
-}
-
-function trackVisit({ ip, userAgent, userId, userRole, userName, userEmail, path }) {
+function trackVisit({ ip, userAgent, userId, userRole, userName, userEmail, path, city, state, country }) {
   const uaHash = simpleHash(userAgent || 'unknown');
   const key = `${ip}::${uaHash}`;
   const now = Date.now();
@@ -134,6 +79,11 @@ function trackVisit({ ip, userAgent, userId, userRole, userName, userEmail, path
     existing.lastActivity = now;
     existing.currentPath = path;
     existing.requestCount++;
+
+    // Update location if frontend sent it and we didn't have it
+    if (city && !existing.city) existing.city = city;
+    if (state && !existing.state) existing.state = state;
+    if (country && !existing.country) existing.country = country;
 
     // Update user info if they logged in
     if (userId && !existing.userId) {
@@ -155,10 +105,6 @@ function trackVisit({ ip, userAgent, userId, userRole, userName, userEmail, path
   const device = parser.getDevice();
   const accessSource = detectAccessSource(userAgent, browser);
 
-  // Get cached geo or trigger lookup
-  const geo = geoCache.get(ip);
-  const isLocal = isPrivateIP(ip);
-
   const visitor = {
     ip,
     browser: browser.name ? `${browser.name} ${browser.version || ''}`.trim() : 'Unknown',
@@ -176,17 +122,14 @@ function trackVisit({ ip, userAgent, userId, userRole, userName, userEmail, path
     requestCount: 1,
     firstSeen: now,
     lastActivity: now,
-    city: isLocal ? 'Localhost' : (geo ? geo.city : ''),
-    state: isLocal ? '' : (geo ? geo.state : ''),
-    country: isLocal ? '' : (geo ? geo.country : ''),
+    city: city || '',
+    state: state || '',
+    country: country || '',
     isSuspicious: false,
     suspiciousReasons: []
   };
 
   visitors.set(key, visitor);
-
-  // Trigger async geo lookup
-  lookupGeo(ip);
 }
 
 function checkSuspicious(visitor) {
@@ -264,13 +207,6 @@ setInterval(() => {
   for (const [key, visitor] of visitors) {
     if (now - visitor.lastActivity > INACTIVE_TIMEOUT) {
       visitors.delete(key);
-    }
-  }
-
-  // Cleanup expired geo cache entries
-  for (const [ip, entry] of geoCache) {
-    if (now - entry.cachedAt > GEO_CACHE_TTL) {
-      geoCache.delete(ip);
     }
   }
 }, 60 * 1000);

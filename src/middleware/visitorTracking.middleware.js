@@ -3,17 +3,29 @@ const { trackVisit } = require('../utils/visitorTracker');
 
 /**
  * Lightweight visitor tracking middleware.
- * - No DB calls, no await, no external HTTP in request path
+ * - IP & location come from frontend headers (client-side fetch)
+ * - Falls back to server-side IP if frontend headers missing
  * - JWT decoded (not verified) to identify user type
  * - Wrapped in try/catch so tracking failures never break requests
  */
 module.exports = (req, res, next) => {
   try {
-    // Extract IP
-    const forwarded = req.headers['x-forwarded-for'];
-    const ip = forwarded
-      ? forwarded.split(',')[0].trim()
-      : (req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown');
+    // IP: prefer frontend-reported real IP, fallback to server-side
+    const ip = (
+      req.headers['x-client-real-ip'] ||
+      req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+      req.headers['x-real-ip'] ||
+      req.headers['cf-connecting-ip'] ||
+      req.ip ||
+      req.connection?.remoteAddress ||
+      req.socket?.remoteAddress ||
+      'unknown'
+    );
+
+    // Location: from frontend headers (client fetched from ip-api.com)
+    const city = req.headers['x-client-city'] || '';
+    const state = req.headers['x-client-state'] || '';
+    const country = req.headers['x-client-country'] || '';
 
     // Get user agent
     const userAgent = req.headers['user-agent'] || '';
@@ -51,7 +63,10 @@ module.exports = (req, res, next) => {
       userRole,
       userName,
       userEmail,
-      path: req.originalUrl || req.url
+      path: req.originalUrl || req.url,
+      city,
+      state,
+      country
     });
   } catch (e) {
     // Never break the request
