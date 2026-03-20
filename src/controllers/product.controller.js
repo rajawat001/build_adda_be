@@ -254,7 +254,7 @@ exports.getProductById = asyncHandler(async (req, res) => {
 
   const product = await Product.findOne(query)
     .populate({ path: 'category', select: 'name slug icon' })
-    .populate('distributor', 'businessName email phone address city state rating slug isApproved isActive planType isWalletLocked');
+    .populate('distributor', 'businessName email phone address city state pincode rating slug isApproved isActive planType isWalletLocked');
 
   if (!product) {
     throw new NotFoundError('Product not found');
@@ -283,6 +283,7 @@ exports.getProductById = asyncHandler(async (req, res) => {
 // @access  Public
 exports.getProductsByCategory = asyncHandler(async (req, res) => {
   const { categoryId } = req.params;
+  const { city, pincode, exclude, limit } = req.query;
 
   // Resolve categoryId: accept ObjectId, name, or slug
   const resolvedCategoryId = await resolveCategoryParam(categoryId);
@@ -290,23 +291,89 @@ exports.getProductsByCategory = asyncHandler(async (req, res) => {
     throw new ValidationError('Invalid category');
   }
 
-  // Only show products from active, approved distributors with a valid plan
-  const eligibleDistributors = await Distributor.find({
+  // Build distributor eligibility filter
+  const distributorFilter = {
     isApproved: true,
     isActive: true,
     isWalletLocked: { $ne: true },
     planType: { $ne: 'none' }
-  }).select('_id').lean();
-  const eligibleIds = eligibleDistributors.map(d => d._id);
+  };
 
-  const products = await Product.find({
+  // If city is provided, filter distributors by same city only
+  if (city && city.trim()) {
+    const escapedCity = city.trim().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+    distributorFilter.city = { $regex: `^${escapedCity}$`, $options: 'i' };
+  }
+
+  const eligibleDistributors = await Distributor.find(distributorFilter)
+    .select('_id pincode').lean();
+
+  // Separate distributors: same pincode first, then rest of city
+  let samePincodeIds = [];
+  let sameCityIds = [];
+  if (pincode) {
+    for (const d of eligibleDistributors) {
+      if (d.pincode === pincode) {
+        samePincodeIds.push(d._id);
+      } else {
+        sameCityIds.push(d._id);
+      }
+    }
+  } else {
+    sameCityIds = eligibleDistributors.map(d => d._id);
+  }
+
+  const allEligibleIds = [...samePincodeIds, ...sameCityIds];
+
+  // Build product filter
+  const productFilter = {
     category: resolvedCategoryId,
     isActive: true,
-    distributor: { $in: eligibleIds },
     $expr: { $gte: ['$stock', '$minQuantity'] }
-  })
+  };
+
+  if (allEligibleIds.length > 0) {
+    // Location matched — show local distributors' products
+    productFilter.distributor = { $in: allEligibleIds };
+  } else {
+    // No location match or no location provided — fallback to all eligible distributors
+    const baseFilter = {
+      isApproved: true,
+      isActive: true,
+      isWalletLocked: { $ne: true },
+      planType: { $ne: 'none' }
+    };
+    const allDistributors = await Distributor.find(baseFilter).select('_id').lean();
+    productFilter.distributor = { $in: allDistributors.map(d => d._id) };
+  }
+
+  // Exclude a specific product (for related products on PDP)
+  if (exclude) {
+    const mongoose = require('mongoose');
+    if (mongoose.Types.ObjectId.isValid(exclude)) {
+      productFilter._id = { $ne: exclude };
+    }
+  }
+
+  const maxResults = Math.min(parseInt(limit) || 20, 50);
+
+  const products = await Product.find(productFilter)
     .populate({ path: 'category', select: 'name slug icon' })
-    .populate('distributor', 'businessName city state slug');
+    .populate('distributor', 'businessName city state pincode slug')
+    .limit(maxResults)
+    .lean();
+
+  // Sort: same pincode distributors first, then same city
+  if (pincode && samePincodeIds.length > 0) {
+    const pincodeIdSet = new Set(samePincodeIds.map(id => id.toString()));
+    products.sort((a, b) => {
+      const aIsPincode = pincodeIdSet.has(a.distributor?._id?.toString());
+      const bIsPincode = pincodeIdSet.has(b.distributor?._id?.toString());
+      if (aIsPincode && !bIsPincode) return -1;
+      if (!aIsPincode && bIsPincode) return 1;
+      return 0;
+    });
+  }
 
   return sendSuccess(res, { data: { products, count: products.length } });
 });
