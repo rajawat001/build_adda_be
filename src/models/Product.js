@@ -1,6 +1,32 @@
 const mongoose = require('mongoose');
 const slugify = require('slugify');
 
+// Helper: resolve a category value (name string, slug, or ObjectId) to a Category ObjectId.
+// Returns the ObjectId if found, or the original value if it's already an ObjectId.
+async function resolveCategoryToObjectId(value) {
+  if (!value) return value;
+  // Already an ObjectId instance
+  if (value instanceof mongoose.Types.ObjectId) return value;
+  // Valid 24-hex ObjectId string — assume it's an ObjectId
+  if (typeof value === 'string' && /^[0-9a-fA-F]{24}$/.test(value)) {
+    return new mongoose.Types.ObjectId(value);
+  }
+  // Otherwise treat as category name or slug — look it up
+  if (typeof value === 'string') {
+    const Category = mongoose.model('Category');
+    const category = await Category.findOne({
+      $or: [
+        { name: { $regex: new RegExp(`^${value.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, 'i') } },
+        { slug: value.toLowerCase() }
+      ]
+    });
+    if (category) return category._id;
+    // If not found, throw a meaningful error
+    throw new Error(`Category "${value}" not found. Please create it first or use a valid Category ObjectId.`);
+  }
+  return value;
+}
+
 const productSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -34,9 +60,9 @@ const productSchema = new mongoose.Schema({
     }
   },
   category: {
-    type: String,
-    required: true,
-    enum: ['Cement', 'Steel', 'Bricks', 'Sand', 'Paint', 'Tiles', 'Other']
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Category',
+    required: true
   },
   image: {
     type: String,
@@ -125,6 +151,18 @@ const productSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Pre-validate hook: resolve category name/slug strings to ObjectId for backward compatibility
+productSchema.pre('validate', async function(next) {
+  if (this.isModified('category') && this.category) {
+    try {
+      this.category = await resolveCategoryToObjectId(this.category);
+    } catch (err) {
+      return next(err);
+    }
+  }
+  next();
+});
+
 productSchema.pre('save', async function(next) {
   if (this.isModified('name')) {
     let baseSlug = slugify(this.name, { lower: true, strict: true });
@@ -149,5 +187,13 @@ productSchema.index({ brand: 1 });
 productSchema.index({ manufacturer: 1 });
 productSchema.index({ isActive: 1, createdAt: -1 });
 productSchema.index({ price: 1 });
+productSchema.index({ distributor: 1, isActive: 1, createdAt: -1 });
+// slug index already defined via unique:true in schema field
+productSchema.index({ category: 1, isActive: 1 });
 
-module.exports = mongoose.model('Product', productSchema);
+const Product = mongoose.model('Product', productSchema);
+
+// Export both the model and the helper for use in controllers
+Product.resolveCategoryToObjectId = resolveCategoryToObjectId;
+
+module.exports = Product;

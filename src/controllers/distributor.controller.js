@@ -1,4 +1,5 @@
 const Product = require('../models/Product');
+const Category = require('../models/Category');
 const Order = require('../models/Order');
 const Distributor = require('../models/Distributor');
 const { uploadToCloudinary } = require('../config/cloudinary');
@@ -20,9 +21,14 @@ exports.getDistributorProducts = asyncHandler(async (req, res) => {
 
   const filter = { distributor: distributorId };
 
-  // Filter by category
+  // Filter by category: accept ObjectId, name, or slug
   if (category) {
-    filter.category = category;
+    try {
+      filter.category = await Product.resolveCategoryToObjectId(category);
+    } catch (e) {
+      // If category not found, force empty results
+      filter.category = null;
+    }
   }
 
   // Filter by active status
@@ -31,6 +37,7 @@ exports.getDistributorProducts = asyncHandler(async (req, res) => {
   }
 
   const products = await Product.find(filter)
+    .populate({ path: 'category', select: 'name slug icon' })
     .sort('-createdAt')
     .limit(limitNum)
     .skip((pageNum - 1) * limitNum);
@@ -84,9 +91,12 @@ exports.addProduct = asyncHandler(async (req, res) => {
     throw new ValidationError('Product category is required');
   }
 
-  const validCategories = ['Cement', 'Steel', 'Bricks', 'Sand', 'Paint', 'Tiles', 'Other'];
-  if (!validCategories.includes(category)) {
-    throw new ValidationError(`Category must be one of: ${validCategories.join(', ')}`);
+  // Resolve category: accept ObjectId or name string
+  let resolvedCategoryId;
+  try {
+    resolvedCategoryId = await Product.resolveCategoryToObjectId(category);
+  } catch (err) {
+    throw new ValidationError(err.message);
   }
 
   if (stock === undefined || stock < 0) {
@@ -160,7 +170,7 @@ exports.addProduct = asyncHandler(async (req, res) => {
     name: name.trim(),
     description: description.trim(),
     price: priceNum,
-    category,
+    category: resolvedCategoryId,
     stock: parseInt(stock),
     unit: unit || 'unit',
     unitType: unitType || 'unit',
@@ -264,11 +274,12 @@ exports.updateProduct = asyncHandler(async (req, res) => {
   }
 
   if (category !== undefined) {
-    const validCategories = ['Cement', 'Steel', 'Bricks', 'Sand', 'Paint', 'Tiles', 'Other'];
-    if (!validCategories.includes(category)) {
-      throw new ValidationError(`Category must be one of: ${validCategories.join(', ')}`);
+    // Resolve category: accept ObjectId or name string
+    try {
+      product.category = await Product.resolveCategoryToObjectId(category);
+    } catch (err) {
+      throw new ValidationError(err.message);
     }
-    product.category = category;
   }
 
   if (stock !== undefined) {

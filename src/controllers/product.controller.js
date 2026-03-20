@@ -5,11 +5,28 @@ const User = require('../models/User');
 const Distributor = require('../models/Distributor');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, NotFoundError } = require('../utils/errors');
+const { sendSuccess, sendPaginated } = require('../utils/response');
 
 // Helper function to escape regex special characters
 const escapeRegex = (text) => {
   return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
 };
+
+// Helper: resolve category param (ObjectId, name, or slug) to a Category ObjectId
+async function resolveCategoryParam(category) {
+  if (!category) return null;
+  const isCatObjectId = /^[0-9a-fA-F]{24}$/.test(category);
+  if (isCatObjectId) return category;
+  // Look up by name (case-insensitive) or slug
+  const escapedCategory = escapeRegex(category);
+  const categoryDoc = await Category.findOne({
+    $or: [
+      { name: { $regex: new RegExp(`^${escapedCategory}$`, 'i') } },
+      { slug: category.toLowerCase() }
+    ]
+  });
+  return categoryDoc ? categoryDoc._id : null;
+}
 
 // @desc    Get all products with filters
 // @route   GET /api/products
@@ -24,11 +41,14 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
     $expr: { $gte: ['$stock', '$minQuantity'] }
   };
 
-  // Category filter with validation
+  // Category filter: accept ObjectId, name, or slug for backward compatibility
   if (category) {
-    const validCategories = ['Cement', 'Steel', 'Bricks', 'Sand', 'Paint', 'Tiles', 'Other'];
-    if (validCategories.includes(category)) {
-      filters.category = category;
+    const resolvedCategoryId = await resolveCategoryParam(category);
+    if (resolvedCategoryId) {
+      filters.category = resolvedCategoryId;
+    } else {
+      // No matching category — force empty results
+      filters.category = null;
     }
   }
 
@@ -48,16 +68,24 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
   }
 
   // FIX: Sanitize search to prevent ReDoS attacks
+  // Note: category is now an ObjectId ref, so we search category name via a separate lookup
   let searchTerm = null;
   if (search && search.trim()) {
     searchTerm = escapeRegex(search.trim());
     filters.$or = [
       { name: { $regex: searchTerm, $options: 'i' } },
       { description: { $regex: searchTerm, $options: 'i' } },
-      { category: { $regex: searchTerm, $options: 'i' } },
       { brand: { $regex: searchTerm, $options: 'i' } },
       { manufacturer: { $regex: searchTerm, $options: 'i' } }
     ];
+
+    // Also search by category name: find matching categories and include their ObjectIds
+    const matchingCategories = await Category.find({
+      name: { $regex: searchTerm, $options: 'i' }
+    }).select('_id').lean();
+    if (matchingCategories.length > 0) {
+      filters.$or.push({ category: { $in: matchingCategories.map(c => c._id) } });
+    }
   }
 
   // Location-based filtering: find distributors by pincode/city, then filter products.
@@ -174,6 +202,7 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
     limit: limitNum,
     sort: sortOption,
     populate: [
+      { path: 'category', select: 'name slug icon' },
       { path: 'distributor', select: 'businessName email phone city state pincode slug' }
     ]
   };
@@ -203,12 +232,13 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
     }
   }
 
-  let products = await productService.getProducts(filters, options);
+  let result = await productService.getProducts(filters, options);
 
-  res.json({
-    success: true,
-    ...products,
-    locationFiltered
+  return sendPaginated(res, {
+    data: { products: result.products, locationFiltered },
+    page: pageNum,
+    limit: limitNum,
+    total: result.totalProducts
   });
 });
 
@@ -223,6 +253,7 @@ exports.getProductById = asyncHandler(async (req, res) => {
   const query = isObjectId ? { _id: param } : { slug: param };
 
   const product = await Product.findOne(query)
+    .populate({ path: 'category', select: 'name slug icon' })
     .populate('distributor', 'businessName email phone address city state rating slug isApproved isActive planType isWalletLocked');
 
   if (!product) {
@@ -244,7 +275,7 @@ exports.getProductById = asyncHandler(async (req, res) => {
     }
   }
 
-  res.json({ success: true, product });
+  return sendSuccess(res, { data: { product } });
 });
 
 // @desc    Get products by category
@@ -253,8 +284,9 @@ exports.getProductById = asyncHandler(async (req, res) => {
 exports.getProductsByCategory = asyncHandler(async (req, res) => {
   const { categoryId } = req.params;
 
-  const validCategories = ['Cement', 'Steel', 'Bricks', 'Sand', 'Paint', 'Tiles', 'Other'];
-  if (!validCategories.includes(categoryId)) {
+  // Resolve categoryId: accept ObjectId, name, or slug
+  const resolvedCategoryId = await resolveCategoryParam(categoryId);
+  if (!resolvedCategoryId) {
     throw new ValidationError('Invalid category');
   }
 
@@ -268,13 +300,15 @@ exports.getProductsByCategory = asyncHandler(async (req, res) => {
   const eligibleIds = eligibleDistributors.map(d => d._id);
 
   const products = await Product.find({
-    category: categoryId,
+    category: resolvedCategoryId,
     isActive: true,
     distributor: { $in: eligibleIds },
     $expr: { $gte: ['$stock', '$minQuantity'] }
-  }).populate('distributor', 'businessName city state slug');
+  })
+    .populate({ path: 'category', select: 'name slug icon' })
+    .populate('distributor', 'businessName city state slug');
 
-  res.json({ success: true, count: products.length, products });
+  return sendSuccess(res, { data: { products, count: products.length } });
 });
 
 // @desc    Get products by distributor
@@ -290,16 +324,18 @@ exports.getProductsByDistributor = asyncHandler(async (req, res) => {
   // Check if distributor is eligible (active, approved, has a plan, not locked)
   const dist = await Distributor.findOne(lookupQuery).select('_id isApproved isActive planType isWalletLocked').lean();
   if (!dist || !dist.isApproved || !dist.isActive || dist.planType === 'none' || dist.isWalletLocked) {
-    return res.json({ success: true, count: 0, products: [] });
+    return sendSuccess(res, { data: { products: [], count: 0 } });
   }
 
   const products = await Product.find({
     distributor: dist._id,
     isActive: true,
     $expr: { $gte: ['$stock', '$minQuantity'] }
-  }).populate('distributor', 'businessName email phone city state rating slug');
+  })
+    .populate({ path: 'category', select: 'name slug icon' })
+    .populate('distributor', 'businessName email phone city state rating slug');
 
-  res.json({ success: true, count: products.length, products });
+  return sendSuccess(res, { data: { products, count: products.length } });
 });
 
 // @desc    Get all categories
@@ -324,11 +360,11 @@ exports.getCategories = asyncHandler(async (req, res) => {
     categories = await Category.find({ isActive: true }).sort('order').lean();
   }
 
-  // Get product count for each category
+  // Get product count for each category (now using ObjectId reference)
   const categoriesWithCount = await Promise.all(
     categories.map(async (cat) => {
       const count = await Product.countDocuments({
-        category: cat.name,
+        category: cat._id,
         isActive: true
       });
       return {
@@ -345,7 +381,7 @@ exports.getCategories = asyncHandler(async (req, res) => {
     })
   );
 
-  res.json({ success: true, categories: categoriesWithCount });
+  return sendSuccess(res, { data: { categories: categoriesWithCount } });
 });
 
 // @desc    Add product to wishlist
@@ -370,20 +406,18 @@ exports.addToWishlist = asyncHandler(async (req, res) => {
 
   // Check if already in wishlist
   if (user.wishlist.includes(productId)) {
-    return res.json({
-      success: true,
+    return sendSuccess(res, {
       message: 'Product already in wishlist',
-      wishlist: user.wishlist
+      data: { wishlist: user.wishlist }
     });
   }
 
   user.wishlist.push(productId);
   await user.save();
 
-  res.json({
-    success: true,
+  return sendSuccess(res, {
     message: 'Product added to wishlist',
-    wishlist: user.wishlist
+    data: { wishlist: user.wishlist }
   });
 });
 
@@ -398,10 +432,9 @@ exports.removeFromWishlist = asyncHandler(async (req, res) => {
   user.wishlist = user.wishlist.filter(id => id.toString() !== productId);
   await user.save();
 
-  res.json({
-    success: true,
+  return sendSuccess(res, {
     message: 'Product removed from wishlist',
-    wishlist: user.wishlist
+    data: { wishlist: user.wishlist }
   });
 });
 
@@ -413,10 +446,13 @@ exports.getWishlist = asyncHandler(async (req, res) => {
 
   const user = await User.findById(userId).populate({
     path: 'wishlist',
-    populate: { path: 'distributor', select: 'businessName city state slug' }
+    populate: [
+      { path: 'category', select: 'name slug icon' },
+      { path: 'distributor', select: 'businessName city state slug' }
+    ]
   });
 
-  res.json({ success: true, wishlist: user.wishlist });
+  return sendSuccess(res, { data: { wishlist: user.wishlist } });
 });
 
 // @desc    Add product to cart
@@ -470,13 +506,15 @@ exports.addToCart = asyncHandler(async (req, res) => {
   // Populate cart for response
   await user.populate({
     path: 'cart.product',
-    populate: { path: 'distributor', select: 'businessName slug' }
+    populate: [
+      { path: 'category', select: 'name slug icon' },
+      { path: 'distributor', select: 'businessName slug' }
+    ]
   });
 
-  res.json({
-    success: true,
+  return sendSuccess(res, {
     message: 'Product added to cart',
-    cart: user.cart
+    data: { cart: user.cart }
   });
 });
 
@@ -516,13 +554,15 @@ exports.updateCartItem = asyncHandler(async (req, res) => {
 
   await user.populate({
     path: 'cart.product',
-    populate: { path: 'distributor', select: 'businessName slug' }
+    populate: [
+      { path: 'category', select: 'name slug icon' },
+      { path: 'distributor', select: 'businessName slug' }
+    ]
   });
 
-  res.json({
-    success: true,
+  return sendSuccess(res, {
     message: 'Cart updated',
-    cart: user.cart
+    data: { cart: user.cart }
   });
 });
 
@@ -539,13 +579,15 @@ exports.removeFromCart = asyncHandler(async (req, res) => {
 
   await user.populate({
     path: 'cart.product',
-    populate: { path: 'distributor', select: 'businessName slug' }
+    populate: [
+      { path: 'category', select: 'name slug icon' },
+      { path: 'distributor', select: 'businessName slug' }
+    ]
   });
 
-  res.json({
-    success: true,
+  return sendSuccess(res, {
     message: 'Product removed from cart',
-    cart: user.cart
+    data: { cart: user.cart }
   });
 });
 
@@ -557,10 +599,13 @@ exports.getCart = asyncHandler(async (req, res) => {
 
   const user = await User.findById(userId).populate({
     path: 'cart.product',
-    populate: { path: 'distributor', select: 'businessName city state slug' }
+    populate: [
+      { path: 'category', select: 'name slug icon' },
+      { path: 'distributor', select: 'businessName city state slug' }
+    ]
   });
 
-  res.json({ success: true, cart: user.cart });
+  return sendSuccess(res, { data: { cart: user.cart } });
 });
 
 // @desc    Clear cart
@@ -573,10 +618,9 @@ exports.clearCart = asyncHandler(async (req, res) => {
   user.cart = [];
   await user.save();
 
-  res.json({
-    success: true,
+  return sendSuccess(res, {
     message: 'Cart cleared',
-    cart: []
+    data: { cart: [] }
   });
 });
 

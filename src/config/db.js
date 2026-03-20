@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const logger = require('../utils/logger');
 
 // Auto-seed default categories if none exist (runs once on startup)
 const seedDefaultCategories = async () => {
@@ -18,9 +19,9 @@ const seedDefaultCategories = async () => {
     ];
 
     await Category.insertMany(defaultCategories);
-    console.log('Auto-seeded 7 default categories');
+    logger.info('Auto-seeded 7 default categories');
   } catch (error) {
-    console.error('Category auto-seed error:', error.message);
+    logger.error('Category auto-seed error', { error: error.message });
   }
 };
 
@@ -41,7 +42,7 @@ const seedDefaultRolesAndSuperAdmin = async () => {
       }
     }
     if (created > 0) {
-      console.log(`Auto-seeded ${created} default role(s)`);
+      logger.info(`Auto-seeded ${created} default role(s)`);
     }
 
     // Step 2: Assign Super Admin to hrajawat1404@gmail.com (only if no assignedRole yet)
@@ -51,11 +52,11 @@ const seedDefaultRolesAndSuperAdmin = async () => {
       if (superAdminRole) {
         primaryAdmin.assignedRole = superAdminRole._id;
         await primaryAdmin.save();
-        console.log('Auto-assigned Super Admin role to hrajawat1404@gmail.com');
+        logger.info('Auto-assigned Super Admin role to hrajawat1404@gmail.com');
       }
     }
   } catch (error) {
-    console.error('Role auto-seed error:', error.message);
+    logger.error('Role auto-seed error', { error: error.message });
   }
 };
 
@@ -69,13 +70,13 @@ const connectDB = async () => {
       retryWrites: true,
     });
 
-    console.log(`MongoDB Connected: ${conn.connection.host}`);
+    logger.info(`MongoDB Connected: ${conn.connection.host}`);
 
     // Auto-seed after DB connection
     await seedDefaultCategories();
     await seedDefaultRolesAndSuperAdmin();
   } catch (error) {
-    console.error(`Error: ${error.message}`);
+    logger.error('MongoDB connection failed', { error: error.message });
     process.exit(1);
   }
 };

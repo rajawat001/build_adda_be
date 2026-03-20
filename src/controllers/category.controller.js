@@ -25,11 +25,11 @@ exports.getAllCategories = async (req, res) => {
     const productCounts = await Product.aggregate([
       { $group: { _id: '$category', count: { $sum: 1 } } }
     ]);
-    const countMap = new Map(productCounts.map(c => [c._id, c.count]));
+    const countMap = new Map(productCounts.map(c => [c._id.toString(), c.count]));
 
     const categoriesWithCounts = categories.map(category => ({
       ...category,
-      productCount: countMap.get(category.name) || 0
+      productCount: countMap.get(category._id.toString()) || 0
     }));
 
     res.json({
@@ -105,8 +105,8 @@ exports.getCategoryById = async (req, res) => {
       });
     }
 
-    // Get product count (Product.category is a String enum, not ObjectId)
-    const productCount = await Product.countDocuments({ category: category.name });
+    // Get product count (Product.category is now an ObjectId ref)
+    const productCount = await Product.countDocuments({ category: category._id });
 
     // Get category path
     const path = await category.getPath();
@@ -314,8 +314,8 @@ exports.deleteCategory = async (req, res) => {
       });
     }
 
-    // Check if category has products (Product.category is a String enum, not ObjectId)
-    const productCount = await Product.countDocuments({ category: category.name });
+    // Check if category has products (Product.category is now an ObjectId ref)
+    const productCount = await Product.countDocuments({ category: category._id });
     if (productCount > 0) {
       return res.status(400).json({
         success: false,
@@ -402,13 +402,13 @@ exports.getCategoryStats = async (req, res) => {
     const productCounts = await Product.aggregate([
       { $group: { _id: '$category', count: { $sum: 1 } } }
     ]);
-    const countMap = new Map(productCounts.map(c => [c._id, c.count]));
+    const countMap = new Map(productCounts.map(c => [c._id.toString(), c.count]));
 
     const topCategories = allCategories
       .map(category => ({
         _id: category._id,
         name: category.name,
-        productCount: countMap.get(category.name) || 0
+        productCount: countMap.get(category._id.toString()) || 0
       }))
       .sort((a, b) => b.productCount - a.productCount)
       .slice(0, 5);

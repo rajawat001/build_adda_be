@@ -116,10 +116,14 @@ const validators = {
   ]
 };
 
+// Canonical email regex for Mongoose model validators
+const EMAIL_REGEX = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
+
 module.exports = {
   validate,
   validators,
   body,
   param,
-  query
+  query,
+  EMAIL_REGEX
 };

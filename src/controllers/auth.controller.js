@@ -6,6 +6,7 @@ const Order = require('../models/Order');
 const Role = require('../models/Role');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, NotFoundError, AuthenticationError } = require('../utils/errors');
+const { sendSuccess } = require('../utils/response');
 
 // Default view-only permissions for admin users without an assigned role
 const DEFAULT_ADMIN_PERMISSIONS = [
@@ -122,15 +123,17 @@ const register = asyncHandler(async (req, res) => {
   // Send welcome email (non-blocking)
   emailService.sendWelcomeEmail(user, role === 'distributor' ? 'distributor' : 'user');
 
-  res.status(201).json({
-    success: true,
+  return sendSuccess(res, {
+    statusCode: 201,
     message: 'Registration successful',
-    user: {
-      _id: user._id,
-      name: user.name || user.businessName,
-      email: user.email,
-      phone: user.phone,
-      role: role === 'distributor' ? 'distributor' : 'user'
+    data: {
+      user: {
+        _id: user._id,
+        name: user.name || user.businessName,
+        email: user.email,
+        phone: user.phone,
+        role: role === 'distributor' ? 'distributor' : 'user'
+      }
     }
   });
 });
@@ -208,20 +211,21 @@ const login = asyncHandler(async (req, res) => {
     }
   }
 
-  res.json({
-    success: true,
+  return sendSuccess(res, {
     message: needsSubscription ? 'Please complete your subscription to activate your account' : 'Login successful',
-    user: {
-      _id: user._id,
-      name: user.name || user.businessName,
-      email: user.email,
-      phone: user.phone,
-      role: userRole,
-      emailVerified: user.emailVerified,
-      isApproved: userRole === 'distributor' ? user.isApproved : true,
-      permissions
-    },
-    needsSubscription
+    data: {
+      user: {
+        _id: user._id,
+        name: user.name || user.businessName,
+        email: user.email,
+        phone: user.phone,
+        role: userRole,
+        emailVerified: user.emailVerified,
+        isApproved: userRole === 'distributor' ? user.isApproved : true,
+        permissions
+      },
+      needsSubscription
+    }
   });
 });
 
@@ -244,32 +248,33 @@ const getProfile = asyncHandler(async (req, res) => {
 
   // Build response based on user type
   if (req.user.role === 'distributor') {
-    res.json({
-      success: true,
-      user: {
-        _id: user._id,
-        businessName: user.businessName,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: 'distributor',
-        pincode: user.pincode,
-        address: user.address,
-        city: user.city,
-        state: user.state,
-        location: user.location,
-        isApproved: user.isApproved,
-        emailVerified: user.emailVerified,
-        profileImage: user.profileImage,
-        description: user.description,
-        rating: user.rating,
-        reviewCount: user.reviewCount,
-        planType: user.planType,
-        isWalletLocked: user.isWalletLocked,
-        commissionPlan: user.commissionPlan,
-        tempDisabled: user.tempDisabled || false,
-        tempDisabledReason: user.tempDisabledReason || null,
-        createdAt: user.createdAt
+    return sendSuccess(res, {
+      data: {
+        user: {
+          _id: user._id,
+          businessName: user.businessName,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          role: 'distributor',
+          pincode: user.pincode,
+          address: user.address,
+          city: user.city,
+          state: user.state,
+          location: user.location,
+          isApproved: user.isApproved,
+          emailVerified: user.emailVerified,
+          profileImage: user.profileImage,
+          description: user.description,
+          rating: user.rating,
+          reviewCount: user.reviewCount,
+          planType: user.planType,
+          isWalletLocked: user.isWalletLocked,
+          commissionPlan: user.commissionPlan,
+          tempDisabled: user.tempDisabled || false,
+          tempDisabledReason: user.tempDisabledReason || null,
+          createdAt: user.createdAt
+        }
       }
     });
   } else {
@@ -284,21 +289,22 @@ const getProfile = asyncHandler(async (req, res) => {
       }
     }
 
-    res.json({
-      success: true,
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        addresses: user.addresses,
-        wishlist: user.wishlist,
-        cart: user.cart,
-        emailVerified: user.emailVerified,
-        profileImage: user.profileImage,
-        createdAt: user.createdAt,
-        permissions
+    return sendSuccess(res, {
+      data: {
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          role: user.role,
+          addresses: user.addresses,
+          wishlist: user.wishlist,
+          cart: user.cart,
+          emailVerified: user.emailVerified,
+          profileImage: user.profileImage,
+          createdAt: user.createdAt,
+          permissions
+        }
       }
     });
   }
@@ -360,15 +366,16 @@ const updateProfile = asyncHandler(async (req, res) => {
 
   await user.save();
 
-  res.json({
-    success: true,
+  return sendSuccess(res, {
     message: 'Profile updated successfully',
-    user: {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      role: user.role
+    data: {
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role
+      }
     }
   });
 });
@@ -414,10 +421,10 @@ const addAddress = asyncHandler(async (req, res) => {
   user.addresses.push(addressData);
   await user.save();
 
-  res.status(201).json({
-    success: true,
+  return sendSuccess(res, {
+    statusCode: 201,
     message: 'Address added successfully',
-    addresses: user.addresses
+    data: { addresses: user.addresses }
   });
 });
 
@@ -463,10 +470,9 @@ const updateAddress = asyncHandler(async (req, res) => {
 
   await user.save();
 
-  res.json({
-    success: true,
+  return sendSuccess(res, {
     message: 'Address updated successfully',
-    addresses: user.addresses
+    data: { addresses: user.addresses }
   });
 });
 
@@ -501,10 +507,9 @@ const deleteAddress = asyncHandler(async (req, res) => {
   user.addresses.pull(addressId);
   await user.save();
 
-  res.json({
-    success: true,
+  return sendSuccess(res, {
     message: 'Address deleted successfully',
-    addresses: user.addresses
+    data: { addresses: user.addresses }
   });
 });
 
@@ -519,10 +524,7 @@ const logout = asyncHandler(async (req, res) => {
     expires: new Date(0)
   });
 
-  res.json({
-    success: true,
-    message: 'Logged out successfully'
-  });
+  return sendSuccess(res, { message: 'Logged out successfully' });
 });
 
 module.exports = {

@@ -1,4 +1,5 @@
 const Product = require('../models/Product');
+const Category = require('../models/Category');
 const User = require('../models/User');
 
 class ProductService {
@@ -7,6 +8,15 @@ class ProductService {
     const { page = 1, limit = 20, sort = '-createdAt', populate = [] } = options;
 
     const query = Product.find(filters);
+
+    // Always populate category if not already in the populate list
+    const hasCategory = populate.some(p =>
+      (typeof p === 'string' && p === 'category') ||
+      (typeof p === 'object' && p.path === 'category')
+    );
+    if (!hasCategory) {
+      query.populate({ path: 'category', select: 'name slug icon' });
+    }
 
     if (populate.length > 0) {
       populate.forEach(pop => {
@@ -33,13 +43,30 @@ class ProductService {
   // Get single product by ID
   async getProductById(productId) {
     return await Product.findById(productId)
-      .populate('category', 'name description')
+      .populate({ path: 'category', select: 'name slug icon' })
       .populate('distributor', 'businessName email phone address city state pincode slug');
   }
 
-  // Get products by category
-  async getProductsByCategory(categoryId) {
+  // Get products by category — accepts ObjectId, name, or slug
+  async getProductsByCategory(categoryIdentifier) {
+    let categoryId = categoryIdentifier;
+
+    // If not a valid ObjectId, resolve by name or slug
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(categoryIdentifier);
+    if (!isObjectId && typeof categoryIdentifier === 'string') {
+      const escapedVal = categoryIdentifier.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      const categoryDoc = await Category.findOne({
+        $or: [
+          { name: { $regex: new RegExp(`^${escapedVal}$`, 'i') } },
+          { slug: categoryIdentifier.toLowerCase() }
+        ]
+      });
+      if (!categoryDoc) return [];
+      categoryId = categoryDoc._id;
+    }
+
     return await Product.find({ category: categoryId })
+      .populate({ path: 'category', select: 'name slug icon' })
       .populate('distributor', 'businessName slug')
       .sort('-createdAt')
       .lean();
@@ -48,21 +75,20 @@ class ProductService {
   // Get products by distributor
   async getProductsByDistributor(distributorId) {
     return await Product.find({ distributor: distributorId })
-      .populate('category', 'name')
+      .populate({ path: 'category', select: 'name slug icon' })
       .sort('-createdAt')
       .lean();
   }
 
   // Get all categories
   async getCategories() {
-    const Category = require('../models/Category');
     return await Category.find({ isActive: true }).sort('name');
   }
 
   // Wishlist operations
   async addToWishlist(userId, productId) {
     const user = await User.findById(userId);
-    
+
     if (!user) {
       throw new Error('User not found');
     }
@@ -89,7 +115,7 @@ class ProductService {
 
   async removeFromWishlist(userId, productId) {
     const user = await User.findById(userId);
-    
+
     if (!user) {
       throw new Error('User not found');
     }
@@ -104,7 +130,7 @@ class ProductService {
     const user = await User.findById(userId).populate({
       path: 'wishlist',
       populate: [
-        { path: 'category', select: 'name' },
+        { path: 'category', select: 'name slug icon' },
         { path: 'distributor', select: 'businessName' }
       ]
     });
@@ -115,7 +141,7 @@ class ProductService {
   // Cart operations
   async addToCart(userId, productId, quantity) {
     const user = await User.findById(userId);
-    
+
     if (!user) {
       throw new Error('User not found');
     }
@@ -148,7 +174,7 @@ class ProductService {
 
   async updateCartItem(userId, productId, quantity) {
     const user = await User.findById(userId);
-    
+
     if (!user) {
       throw new Error('User not found');
     }
@@ -163,7 +189,7 @@ class ProductService {
     }
 
     const cartItem = user.cart.find(item => item.product.toString() === productId);
-    
+
     if (!cartItem) {
       throw new Error('Product not in cart');
     }
@@ -176,7 +202,7 @@ class ProductService {
 
   async removeFromCart(userId, productId) {
     const user = await User.findById(userId);
-    
+
     if (!user) {
       throw new Error('User not found');
     }
@@ -191,7 +217,7 @@ class ProductService {
     const user = await User.findById(userId).populate({
       path: 'cart.product',
       populate: [
-        { path: 'category', select: 'name' },
+        { path: 'category', select: 'name slug icon' },
         { path: 'distributor', select: 'businessName' }
       ]
     });
@@ -220,7 +246,7 @@ class ProductService {
 
   async clearCart(userId) {
     const user = await User.findById(userId);
-    
+
     if (!user) {
       throw new Error('User not found');
     }
@@ -240,7 +266,7 @@ class ProductService {
     };
 
     return await Product.find(searchQuery)
-      .populate('category', 'name')
+      .populate({ path: 'category', select: 'name slug icon' })
       .populate('distributor', 'businessName slug')
       .sort('-createdAt')
       .lean();
@@ -249,7 +275,7 @@ class ProductService {
   // Get featured products
   async getFeaturedProducts(limit = 10) {
     return await Product.find({ isFeatured: true, stock: { $gt: 0 } })
-      .populate('category', 'name')
+      .populate({ path: 'category', select: 'name slug icon' })
       .populate('distributor', 'businessName slug')
       .limit(limit)
       .sort('-createdAt')
@@ -262,7 +288,7 @@ class ProductService {
       distributor: distributorId,
       stock: { $lte: threshold }
     })
-      .populate('category', 'name')
+      .populate({ path: 'category', select: 'name slug icon' })
       .sort('stock');
   }
 }

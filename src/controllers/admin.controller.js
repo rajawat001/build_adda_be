@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Distributor = require('../models/Distributor');
 const Product = require('../models/Product');
+const Category = require('../models/Category');
 const Order = require('../models/Order');
 const Transaction = require('../models/Transaction');
 const Coupon = require('../models/Coupon');
@@ -16,7 +17,11 @@ const emailService = require('../services/email.service');
 // @route   GET /api/admin/admin-users
 // @access  Private (Admin only)
 exports.getAdminUsers = asyncHandler(async (req, res) => {
-  const { search } = req.query;
+  const { search, page = 1, limit = 50 } = req.query;
+
+  // Validate and limit pagination
+  const pageNum = Math.max(1, parseInt(page));
+  const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
 
   const filter = { role: 'admin' };
 
@@ -30,18 +35,28 @@ exports.getAdminUsers = asyncHandler(async (req, res) => {
     ];
   }
 
-  const adminUsers = await User.find(filter)
-    .select('-password')
-    .populate('assignedRole', 'name description permissions isActive')
-    .sort('-createdAt');
-
-  const roles = await Role.find({ isActive: true }).sort({ isSystem: -1, name: 1 });
+  const [adminUsers, total, roles] = await Promise.all([
+    User.find(filter)
+      .select('-password')
+      .populate('assignedRole', 'name description permissions isActive')
+      .sort('-createdAt')
+      .limit(limitNum)
+      .skip((pageNum - 1) * limitNum),
+    User.countDocuments(filter),
+    Role.find({ isActive: true }).sort({ isSystem: -1, name: 1 })
+  ]);
 
   res.json({
     success: true,
     adminUsers,
     roles,
-    total: adminUsers.length
+    total,
+    pagination: {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      pages: Math.ceil(total / limitNum)
+    }
   });
 });
 
@@ -612,12 +627,22 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
 
   const filter = {};
 
-  // Filter by category (case-insensitive match against enum)
+  // Filter by category: accept ObjectId, name, or slug
   if (category) {
-    const validCategories = ['Cement', 'Steel', 'Bricks', 'Sand', 'Paint', 'Tiles', 'Other'];
-    const matched = validCategories.find(c => c.toLowerCase() === category.toLowerCase());
-    if (matched) {
-      filter.category = matched;
+    const isCatObjectId = /^[0-9a-fA-F]{24}$/.test(category);
+    if (isCatObjectId) {
+      filter.category = category;
+    } else {
+      const escapedCategory = category.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      const categoryDoc = await Category.findOne({
+        $or: [
+          { name: { $regex: new RegExp(`^${escapedCategory}$`, 'i') } },
+          { slug: category.toLowerCase() }
+        ]
+      });
+      if (categoryDoc) {
+        filter.category = categoryDoc._id;
+      }
     }
   }
 
@@ -674,6 +699,7 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
   }
 
   const products = await Product.find(filter)
+    .populate({ path: 'category', select: 'name slug icon' })
     .populate('distributor', 'businessName email slug')
     .sort('-createdAt')
     .limit(limitNum)
@@ -1971,17 +1997,16 @@ exports.getOrderStats = asyncHandler(async (req, res) => {
 exports.getCouponStats = asyncHandler(async (req, res) => {
   const now = new Date();
 
-  const [total, active, allCoupons] = await Promise.all([
+  const [total, active, expired, usageResult] = await Promise.all([
     Coupon.countDocuments(),
     Coupon.countDocuments({ isActive: true, $or: [{ expiryDate: { $gte: now } }, { expiryDate: null }] }),
-    Coupon.find()
+    Coupon.countDocuments({ expiryDate: { $ne: null, $lt: now } }),
+    Coupon.aggregate([
+      { $group: { _id: null, totalUsage: { $sum: '$usageCount' } } }
+    ])
   ]);
 
-  const expired = allCoupons.filter(coupon =>
-    coupon.expiryDate && new Date(coupon.expiryDate) < now
-  ).length;
-
-  const totalUsage = allCoupons.reduce((sum, coupon) => sum + (coupon.usageCount || 0), 0);
+  const totalUsage = usageResult[0]?.totalUsage || 0;
 
   // Approximate total discount (would need order data for exact calculation)
   const totalDiscount = 0; // TODO: Calculate from orders if needed

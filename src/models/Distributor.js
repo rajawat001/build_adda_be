@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const slugify = require('slugify');
+const { EMAIL_REGEX } = require('../utils/validators');
 
 const distributorSchema = new mongoose.Schema({
   businessName: {
@@ -24,7 +25,7 @@ const distributorSchema = new mongoose.Schema({
     unique: true,
     lowercase: true,
     trim: true,
-    match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Please provide a valid email']
+    match: [EMAIL_REGEX, 'Please provide a valid email']
   },
   password: {
     type: String,

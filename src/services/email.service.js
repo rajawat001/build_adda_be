@@ -1,3 +1,4 @@
+const logger = require('../utils/logger');
 const {
   otpTemplate,
   welcomeTemplate,
@@ -22,7 +23,7 @@ const sendEmail = async (to, subject, html) => {
   try {
     const apiKey = process.env.BREVO_API_KEY;
     if (!apiKey) {
-      console.error('BREVO_API_KEY is not set in environment variables');
+      logger.error('BREVO_API_KEY is not set in environment variables');
       return { success: false, error: 'Email API key not configured' };
     }
 
@@ -47,14 +48,14 @@ const sendEmail = async (to, subject, html) => {
     const data = await response.json();
 
     if (!response.ok) {
-      console.error(`Brevo API error for ${to}:`, data.message || JSON.stringify(data));
+      logger.error(`Brevo API error for ${to}`, { detail: data.message || JSON.stringify(data) });
       return { success: false, error: data.message || 'Brevo API error' };
     }
 
-    console.log(`Email sent to ${to}: ${data.messageId}`);
+    logger.info(`Email sent to ${to}`, { messageId: data.messageId });
     return { success: true, messageId: data.messageId };
   } catch (error) {
-    console.error(`Failed to send email to ${to}:`, error.message);
+    logger.error(`Failed to send email to ${to}`, { error: error.message });
     // Don't throw - email failures should not break the main flow
     return { success: false, error: error.message };
   }

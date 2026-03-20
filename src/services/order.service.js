@@ -3,6 +3,7 @@ const Product = require('../models/Product');
 const Coupon = require('../models/Coupon');
 const Transaction = require('../models/Transaction');
 const { createNotification } = require('../controllers/notification.controller');
+const { bulkUpdateStock } = require('./stock.service');
 
 class OrderService {
   // Generate unique order number
@@ -20,12 +21,8 @@ class OrderService {
       ...orderData  // Spread all fields from orderData (includes paymentMethod, distributor, etc.)
     });
 
-    // Update product stock
-    for (const item of orderData.items) {
-      await Product.findByIdAndUpdate(item.product, {
-        $inc: { stock: -item.quantity }
-      });
-    }
+    // Update product stock in batch
+    await bulkUpdateStock(orderData.items, 'decrement');
 
     // Create notification for distributor about new order
     if (orderData.distributor) {
@@ -77,27 +74,77 @@ class OrderService {
   // Get distributor orders
   async getDistributorOrders(filters, options = {}) {
     const { page = 1, limit = 20 } = options;
+    const distributorId = filters['items.product.distributor'];
 
-    const orders = await Order.find()
-      .populate({
-        path: 'items.product',
-        match: { distributor: filters['items.product.distributor'] },
-        populate: { path: 'category', select: 'name' }
-      })
-      .populate('user', 'name email phone')
-      .sort('-createdAt')
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+    // Use aggregation to filter at the database level instead of fetching all orders
+    const pipeline = [
+      // Unwind items to join with products
+      { $unwind: '$items' },
+      // Lookup product details
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'items.product',
+          foreignField: '_id',
+          as: 'items.productDetails'
+        }
+      },
+      { $unwind: '$items.productDetails' },
+      // Filter only items belonging to this distributor
+      { $match: { 'items.productDetails.distributor': new (require('mongoose').Types.ObjectId)(distributorId) } },
+      // Group back to order level
+      {
+        $group: {
+          _id: '$_id',
+          orderNumber: { $first: '$orderNumber' },
+          user: { $first: '$user' },
+          orderStatus: { $first: '$orderStatus' },
+          paymentStatus: { $first: '$paymentStatus' },
+          paymentMethod: { $first: '$paymentMethod' },
+          totalAmount: { $first: '$totalAmount' },
+          subtotal: { $first: '$subtotal' },
+          discount: { $first: '$discount' },
+          deliveryCharge: { $first: '$deliveryCharge' },
+          shippingAddress: { $first: '$shippingAddress' },
+          createdAt: { $first: '$createdAt' },
+          updatedAt: { $first: '$updatedAt' },
+          approvalStatus: { $first: '$approvalStatus' },
+          items: {
+            $push: {
+              product: '$items.productDetails',
+              quantity: '$items.quantity',
+              price: '$items.price',
+              name: '$items.name',
+              image: '$items.image'
+            }
+          }
+        }
+      },
+      { $sort: { createdAt: -1 } },
+      // Facet for pagination
+      {
+        $facet: {
+          orders: [
+            { $skip: (page - 1) * limit },
+            { $limit: limit }
+          ],
+          totalCount: [{ $count: 'count' }]
+        }
+      }
+    ];
 
-    // Filter orders that have products from this distributor
-    const filteredOrders = orders.filter(order => 
-      order.items.some(item => item.product !== null)
-    );
+    const [result] = await Order.aggregate(pipeline);
+    const orders = result.orders || [];
+    const totalCount = result.totalCount[0]?.count || 0;
+
+    // Populate user details
+    await Order.populate(orders, { path: 'user', select: 'name email phone' });
 
     return {
-      orders: filteredOrders,
-      totalPages: Math.ceil(filteredOrders.length / limit),
-      currentPage: page
+      orders,
+      totalPages: Math.ceil(totalCount / limit),
+      currentPage: page,
+      totalOrders: totalCount
     };
   }
 
@@ -119,13 +166,9 @@ class OrderService {
       throw new Error('Order not found');
     }
 
-    // If order is cancelled, restore stock
+    // If order is cancelled, restore stock in batch
     if (status === 'cancelled') {
-      for (const item of order.items) {
-        await Product.findByIdAndUpdate(item.product, {
-          $inc: { stock: item.quantity }
-        });
-      }
+      await bulkUpdateStock(order.items, 'increment');
     }
 
     return await this.getOrderById(orderId);

@@ -15,13 +15,16 @@ const connectDB = require('./config/db');
 const { errorHandler, notFound } = require('./middleware/error.middleware');
 const { processSubscriptionRenewals, sendRenewalReminders } = require('./jobs/subscriptionRenewal.job');
 const { runSlugMigration } = require('./scripts/migrateSlug');
+const { AUTH_RATE_LIMIT_WINDOW, AUTH_RATE_LIMIT_MAX } = require('./utils/constants');
+const logger = require('./utils/logger');
+const { runMigrations } = require('./utils/migrationRunner');
 
 // Validate required environment variables
 const requiredEnvVars = ['JWT_SECRET', 'MONGODB_URI'];
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
 if (missingEnvVars.length > 0) {
-  console.error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
+  logger.error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
   process.exit(1);
 }
 
@@ -30,8 +33,8 @@ const app = express();
 // Trust proxy (required for ngrok, Vercel, etc. to get correct client IP for rate limiting)
 app.set('trust proxy', 1);
 
-// Connect to database
-connectDB();
+// Connect to database, then run one-time migrations
+connectDB().then(() => runMigrations()).catch(err => logger.error('Migration runner failed', { error: err.message }));
 
 // SECURITY: Helmet - Set security headers
 app.use(helmet({
@@ -62,17 +65,12 @@ app.use(cors({
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
 
-    // Check if origin is in allowed list
+    // Check if origin is in allowed list (exact match only)
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      // Allow Vercel and ngrok URLs
-      if (origin.includes('.vercel.app') || origin.includes('.ngrok-free.app') || origin.includes('.ngrok.io')) {
-        callback(null, true);
-      } else {
-        console.log('Blocked by CORS:', origin);
-        callback(new Error('Not allowed by CORS'));
-      }
+      logger.warn('Blocked by CORS', { origin });
+      callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true, // CRITICAL: Allow cookies to be sent
@@ -92,10 +90,10 @@ const limiter = rateLimit({
 
 // Stricter rate limit for authentication endpoints
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 requests per windowMs
+  windowMs: AUTH_RATE_LIMIT_WINDOW,
+  max: AUTH_RATE_LIMIT_MAX,
   message: 'Too many login attempts, please try again later',
-  skipSuccessfulRequests: true  // Don't count successful requests
+  skipSuccessfulRequests: false  // Count ALL login attempts toward rate limit
 });
 
 // Apply rate limiting
@@ -143,7 +141,7 @@ app.use(require('./middleware/visitorTracking.middleware'));
 app.use(mongoSanitize({
   replaceWith: '_',  // Replace prohibited characters with underscore
   onSanitize: ({ req, key }) => {
-    console.warn(`Sanitized potentially malicious input: ${key}`);
+    logger.warn('Sanitized potentially malicious input', { key });
   }
 }));
 
@@ -189,12 +187,23 @@ app.use('/api/commission', require('./modules/commission/routes/commission.route
 app.use('/api/admin/commission', require('./modules/commission/routes/commission-admin.routes'));
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'BuildAdda API is running',
-    environment: process.env.NODE_ENV || 'development',
-    timestamp: new Date().toISOString()
+app.get('/health', async (req, res) => {
+  const mongoose = require('mongoose');
+  const readyState = mongoose.connection.readyState;
+  // 0=disconnected, 1=connected, 2=connecting, 3=disconnecting
+  const stateMap = { 0: 'disconnected', 1: 'connected', 2: 'connecting', 3: 'disconnecting' };
+  const mongoStatus = stateMap[readyState] || 'unknown';
+
+  // Only return 503 if fully disconnected (0). Connecting (2) is normal during cold start.
+  const healthy = readyState === 1 || readyState === 2;
+
+  res.status(healthy ? 200 : 503).json({
+    status: readyState === 1 ? 'healthy' : (readyState === 2 ? 'starting' : 'unhealthy'),
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    services: {
+      database: mongoStatus,
+    }
   });
 });
 
@@ -216,60 +225,63 @@ app.use(errorHandler);
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err) => {
-  console.error('UNHANDLED REJECTION! Shutting down...');
-  console.error(err.name, err.message);
+  logger.error('UNHANDLED REJECTION! Shutting down...', { name: err.name, message: err.message });
   process.exit(1);
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
-  console.error('UNCAUGHT EXCEPTION! Shutting down...');
-  console.error(err.name, err.message);
+  logger.error('UNCAUGHT EXCEPTION! Shutting down...', { name: err.name, message: err.message });
   process.exit(1);
 });
 
 const PORT = process.env.PORT || 5000;
 
 const server = app.listen(PORT, () => {
-  console.log(`
-╔════════════════════════════════════════╗
-║   BuildAdda E-commerce API Server      ║
-║   Port: ${PORT}                           ║
-║   Environment: ${process.env.NODE_ENV || 'development'}         ║
-║   Status: READY ✓                      ║
-╚════════════════════════════════════════╝
-  `);
+  logger.info('BuildAdda E-commerce API Server started', { port: PORT, environment: process.env.NODE_ENV || 'development' });
 
   // Run one-time slug migration (idempotent — skips if already done)
   runSlugMigration();
 
   // Schedule subscription renewal job (runs daily at 6 AM)
   cron.schedule('0 6 * * *', async () => {
-    console.log('Running scheduled subscription renewal job...');
-    await processSubscriptionRenewals();
+    try {
+      logger.info('Running scheduled subscription renewal job...');
+      await processSubscriptionRenewals();
+    } catch (error) {
+      logger.error('Subscription renewal job failed', { error: error.message });
+    }
   });
 
   // Schedule renewal reminder job (runs daily at 10 AM)
   cron.schedule('0 10 * * *', async () => {
-    console.log('Running scheduled renewal reminder job...');
-    await sendRenewalReminders();
+    try {
+      logger.info('Running scheduled renewal reminder job...');
+      await sendRenewalReminders();
+    } catch (error) {
+      logger.error('Renewal reminder job failed', { error: error.message });
+    }
   });
 
   // Schedule wallet limit check job (runs every 6 hours)
   cron.schedule('0 */6 * * *', async () => {
-    console.log('Running scheduled wallet limit check job...');
-    const { checkAllWallets } = require('./modules/commission/jobs/walletCheck.job');
-    await checkAllWallets();
+    try {
+      logger.info('Running scheduled wallet limit check job...');
+      const { checkAllWallets } = require('./modules/commission/jobs/walletCheck.job');
+      await checkAllWallets();
+    } catch (error) {
+      logger.error('Wallet limit check job failed', { error: error.message });
+    }
   });
 
-  console.log('Scheduled jobs: Subscription renewal (6 AM), Renewal reminders (10 AM), Wallet check (every 6h)');
+  logger.info('Scheduled jobs registered', { jobs: 'Subscription renewal (6 AM), Renewal reminders (10 AM), Wallet check (every 6h)' });
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('SIGTERM received. Shutting down gracefully...');
+  logger.info('SIGTERM received. Shutting down gracefully...');
   server.close(() => {
-    console.log('Process terminated');
+    logger.info('Process terminated');
   });
 });
 

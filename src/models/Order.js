@@ -272,6 +272,9 @@ orderSchema.index({ distributor: 1, orderStatus: 1 });
 orderSchema.index({ createdAt: -1 });
 orderSchema.index({ paymentStatus: 1, orderStatus: 1 });
 orderSchema.index({ guestEmail: 1, isGuestOrder: 1 });
+orderSchema.index({ user: 1, orderStatus: 1 });
+orderSchema.index({ 'items.product': 1 });
+orderSchema.index({ orderStatus: 1, paymentStatus: 1 });
 
 // VIRTUAL: Check if order can be cancelled
 orderSchema.virtual('canBeCancelled').get(function() {

@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const axios = require('axios');
 const { baseUrl, getAccessToken } = require('../config/phonepe');
+const logger = require('../utils/logger');
 
 class PaymentService {
   /**
@@ -65,14 +66,14 @@ class PaymentService {
     const webhookUser = process.env.PHONEPE_WEBHOOK_USERNAME;
     const webhookPass = process.env.PHONEPE_WEBHOOK_PASSWORD;
 
-    // If webhook credentials not configured, accept all (dev/test mode only)
+    // If webhook credentials not configured, reject all webhooks
     if (!webhookUser || !webhookPass) {
-      console.warn('PhonePe webhook credentials not configured — skipping verification (DEV MODE)');
-      return true;
+      logger.error('PhonePe webhook credentials not configured — rejecting webhook. Set PHONEPE_WEBHOOK_USERNAME and PHONEPE_WEBHOOK_PASSWORD.');
+      return false;
     }
 
     if (!authHeader || !authHeader.startsWith('Basic ')) {
-      console.error('Webhook: Missing or invalid Authorization header');
+      logger.error('Webhook: Missing or invalid Authorization header');
       return false;
     }
 
@@ -83,7 +84,7 @@ class PaymentService {
 
       return user === webhookUser && pass === webhookPass;
     } catch (error) {
-      console.error('Webhook: Error decoding authorization:', error.message);
+      logger.error('Webhook: Error decoding authorization', { error: error.message });
       return false;
     }
   }

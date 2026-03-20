@@ -1,12 +1,14 @@
 const orderService = require('../services/order.service');
 const paymentService = require('../services/payment.service');
 const emailService = require('../services/email.service');
+const { bulkUpdateStock } = require('../services/stock.service');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const User = require('../models/User');
 const Distributor = require('../models/Distributor');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, NotFoundError, AuthorizationError, AuthenticationError } = require('../utils/errors');
+const { sendSuccess, sendError, sendPaginated } = require('../utils/response');
 
 // @desc    Create new order
 // @route   POST /api/orders
@@ -183,10 +185,10 @@ exports.createOrder = asyncHandler(async (req, res) => {
     }
   }
 
-  res.status(201).json({
-    success: true,
+  return sendSuccess(res, {
+    statusCode: 201,
     message: 'Order created successfully',
-    order
+    data: { order }
   });
 });
 
@@ -242,11 +244,8 @@ exports.initiatePhonepePayment = asyncHandler(async (req, res) => {
   // v2 response: { orderId, state, redirectUrl }
   const paymentUrl = phonePeResponse.redirectUrl;
 
-  res.json({
-    success: true,
-    paymentUrl,
-    merchantOrderId,
-    orderId: order._id
+  return sendSuccess(res, {
+    data: { paymentUrl, merchantOrderId, orderId: order._id }
   });
 });
 
@@ -270,11 +269,9 @@ exports.checkPaymentStatus = asyncHandler(async (req, res) => {
 
   // If already paid (e.g. by webhook), return success immediately
   if (order.paymentStatus === 'paid') {
-    return res.json({
-      success: true,
+    return sendSuccess(res, {
       message: 'Payment already verified',
-      paymentStatus: 'paid',
-      order
+      data: { paymentStatus: 'paid', order }
     });
   }
 
@@ -303,20 +300,16 @@ exports.checkPaymentStatus = asyncHandler(async (req, res) => {
       emailService.sendPaymentConfirmationEmail(order, order.shippingAddress?.fullName || 'Customer', order.guestEmail);
     }
 
-    return res.json({
-      success: true,
+    return sendSuccess(res, {
       message: 'Payment verified successfully',
-      paymentStatus: 'paid',
-      order
+      data: { paymentStatus: 'paid', order }
     });
   }
 
   if (state === 'PENDING') {
-    return res.json({
-      success: true,
+    return sendSuccess(res, {
       message: 'Payment is still pending',
-      paymentStatus: 'pending',
-      order
+      data: { paymentStatus: 'pending', order }
     });
   }
 
@@ -327,19 +320,14 @@ exports.checkPaymentStatus = asyncHandler(async (req, res) => {
 
   // Restore stock for each item
   if (order.items && order.items.length > 0) {
-    for (const item of order.items) {
-      const productId = typeof item.product === 'object' ? item.product._id : item.product;
-      await Product.findByIdAndUpdate(productId, {
-        $inc: { stock: item.quantity }
-      });
-    }
+    await bulkUpdateStock(order.items, 'increment');
   }
 
-  return res.json({
-    success: false,
+  return sendError(res, {
     message: 'Payment failed',
-    paymentStatus: 'failed',
-    order
+    code: 'PAYMENT_FAILED',
+    statusCode: 200,
+    details: { paymentStatus: 'failed', order }
   });
 });
 
@@ -383,10 +371,9 @@ exports.confirmCOD = asyncHandler(async (req, res) => {
   order.orderStatus = 'confirmed';
   await order.save();
 
-  res.json({
-    success: true,
+  return sendSuccess(res, {
     message: 'Order confirmed with Cash on Delivery',
-    order
+    data: { order }
   });
 });
 
@@ -421,15 +408,11 @@ exports.getMyOrders = asyncHandler(async (req, res) => {
 
   const total = await Order.countDocuments(filters);
 
-  res.json({
-    success: true,
-    orders,
-    pagination: {
-      page: options.page,
-      limit: options.limit,
-      total,
-      pages: Math.ceil(total / options.limit)
-    }
+  return sendPaginated(res, {
+    data: { orders },
+    page: options.page,
+    limit: options.limit,
+    total
   });
 });
 
@@ -453,10 +436,7 @@ exports.getOrderById = asyncHandler(async (req, res) => {
     throw new AuthorizationError('You are not authorized to access this order');
   }
 
-  res.json({
-    success: true,
-    order
-  });
+  return sendSuccess(res, { data: { order } });
 });
 
 // @desc    Cancel order
@@ -525,13 +505,11 @@ exports.cancelOrder = asyncHandler(async (req, res) => {
     emailService.sendOrderCancelledToDistributor(order, cancelDist);
   }
 
-  res.json({
-    success: true,
+  return sendSuccess(res, {
     message: refundInitiated
       ? 'Order cancelled and refund initiated successfully'
       : 'Order cancelled successfully',
-    refundInitiated,
-    order
+    data: { order, refundInitiated }
   });
 });
 
@@ -551,11 +529,12 @@ exports.applyCoupon = asyncHandler(async (req, res) => {
 
   const result = await orderService.applyCoupon(couponCode, totalAmount);
 
-  res.json({
-    success: true,
-    discount: result.discount,
-    finalAmount: totalAmount - result.discount,
-    coupon: result.coupon
+  return sendSuccess(res, {
+    data: {
+      discount: result.discount,
+      finalAmount: totalAmount - result.discount,
+      coupon: result.coupon
+    }
   });
 });
 
@@ -590,15 +569,11 @@ exports.getDistributorOrders = asyncHandler(async (req, res) => {
 
   const total = await Order.countDocuments(filters);
 
-  res.json({
-    success: true,
-    orders,
-    pagination: {
-      page: options.page,
-      limit: options.limit,
-      total,
-      pages: Math.ceil(total / options.limit)
-    }
+  return sendPaginated(res, {
+    data: { orders },
+    page: options.page,
+    limit: options.limit,
+    total
   });
 });
 
@@ -647,10 +622,9 @@ exports.updateOrderStatus = asyncHandler(async (req, res) => {
     emailService.sendOrderStatusEmail(order, statusUser.name || 'Customer', statusUser.email, status);
   }
 
-  res.json({
-    success: true,
+  return sendSuccess(res, {
     message: 'Order status updated successfully',
-    order
+    data: { order }
   });
 });
 
@@ -677,10 +651,7 @@ exports.getGuestOrder = asyncHandler(async (req, res) => {
     throw new NotFoundError('Order not found');
   }
 
-  res.json({
-    success: true,
-    order
-  });
+  return sendSuccess(res, { data: { order } });
 });
 
 module.exports = exports;

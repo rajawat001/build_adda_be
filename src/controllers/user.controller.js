@@ -1,5 +1,6 @@
 const asyncHandler = require('../utils/asyncHandler');
 const Distributor = require('../models/Distributor');
+const { sendSuccess, sendError } = require('../utils/response');
 
 // @desc    Get all verified distributors (public)
 // @route   GET /api/users/distributors
@@ -25,10 +26,8 @@ exports.getAllDistributors = asyncHandler(async (req, res) => {
     .skip(skip)
     .limit(parseInt(limit));
 
-  res.status(200).json({
-    success: true,
-    count: distributors.length,
-    distributors
+  return sendSuccess(res, {
+    data: { distributors, count: distributors.length }
   });
 });
 
@@ -52,9 +51,10 @@ exports.getNearbyDistributors = asyncHandler(async (req, res) => {
   // 4. If all empty → return empty (frontend shows "expanding" message)
 
   if (!pincode && !city) {
-    return res.status(400).json({
-      success: false,
-      error: 'Please provide pincode or city'
+    return sendError(res, {
+      message: 'Please provide pincode or city',
+      code: 'VALIDATION_ERROR',
+      statusCode: 400
     });
   }
 
@@ -115,10 +115,8 @@ exports.getNearbyDistributors = asyncHandler(async (req, res) => {
     });
   }
 
-  return res.status(200).json({
-    success: true,
-    count: allDistributors.length,
-    distributors: allDistributors
+  return sendSuccess(res, {
+    data: { distributors: allDistributors, count: allDistributors.length }
   });
 });
 
@@ -141,14 +139,12 @@ exports.getDistributorProfile = asyncHandler(async (req, res) => {
   }).select('-password -resetPasswordToken -resetPasswordExpiry -verificationToken -bankAccountNumber -bankIFSC -failedLoginAttempts -lockUntil');
 
   if (!distributor) {
-    return res.status(404).json({
-      success: false,
-      error: 'Distributor not found'
+    return sendError(res, {
+      message: 'Distributor not found',
+      code: 'NOT_FOUND',
+      statusCode: 404
     });
   }
 
-  res.status(200).json({
-    success: true,
-    distributor
-  });
+  return sendSuccess(res, { data: { distributor } });
 });

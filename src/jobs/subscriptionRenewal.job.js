@@ -2,6 +2,8 @@ const Subscription = require('../models/Subscription');
 const SubscriptionPlan = require('../models/SubscriptionPlan');
 const autopayService = require('../services/autopay.service');
 const notificationController = require('../controllers/notification.controller');
+const { MAX_AUTOPAY_RETRY_ATTEMPTS } = require('../utils/constants');
+const logger = require('../utils/logger');
 
 /**
  * Process automatic subscription renewals
@@ -14,7 +16,7 @@ const notificationController = require('../controllers/notification.controller')
  * 4. Haven't had a renewal attempt in the last 24 hours
  */
 async function processSubscriptionRenewals() {
-  console.log('Starting subscription renewal job...');
+  logger.info('Starting subscription renewal job...');
 
   const now = new Date();
   const threeDaysFromNow = new Date(now);
@@ -34,10 +36,10 @@ async function processSubscriptionRenewals() {
         { 'autopay.lastRenewalAttempt': { $exists: false } },
         { 'autopay.lastRenewalAttempt': { $lt: twentyFourHoursAgo } }
       ],
-      'autopay.failedAttempts': { $lt: 3 }
+      'autopay.failedAttempts': { $lt: MAX_AUTOPAY_RETRY_ATTEMPTS }
     }).populate('plan');
 
-    console.log(`Found ${subscriptionsToRenew.length} subscriptions to renew`);
+    logger.info(`Found ${subscriptionsToRenew.length} subscriptions to renew`);
 
     for (const subscription of subscriptionsToRenew) {
       await processRenewal(subscription);
@@ -46,9 +48,9 @@ async function processSubscriptionRenewals() {
     // Also check for expired subscriptions that need to be marked as expired
     await markExpiredSubscriptions();
 
-    console.log('Subscription renewal job completed');
+    logger.info('Subscription renewal job completed');
   } catch (error) {
-    console.error('Error in subscription renewal job:', error);
+    logger.error('Error in subscription renewal job', { error: error.message });
   }
 }
 
@@ -57,11 +59,11 @@ async function processSubscriptionRenewals() {
  */
 async function processRenewal(subscription) {
   try {
-    console.log(`Processing renewal for subscription ${subscription._id}`);
+    logger.info(`Processing renewal for subscription ${subscription._id}`);
 
     const plan = subscription.plan;
     if (!plan) {
-      console.error(`No plan found for subscription ${subscription._id}`);
+      logger.error(`No plan found for subscription ${subscription._id}`);
       return;
     }
 
@@ -80,13 +82,13 @@ async function processRenewal(subscription) {
     subscription.autopay.lastRenewalStatus = 'pending';
     await subscription.save();
 
-    console.log(`Renewal initiated for subscription ${subscription._id}, order: ${merchantOrderId}`);
+    logger.info(`Renewal initiated for subscription ${subscription._id}`, { merchantOrderId });
 
     // The actual success/failure will be handled via webhook
     // subscription.notification.charged or subscription.notification.failed
 
   } catch (error) {
-    console.error(`Error processing renewal for ${subscription._id}:`, error.message);
+    logger.error(`Error processing renewal for ${subscription._id}`, { error: error.message });
 
     subscription.autopay.lastRenewalAttempt = new Date();
     subscription.autopay.lastRenewalStatus = 'failed';
@@ -123,7 +125,7 @@ async function markExpiredSubscriptions() {
   );
 
   if (result.modifiedCount > 0) {
-    console.log(`Marked ${result.modifiedCount} subscriptions as expired`);
+    logger.info(`Marked ${result.modifiedCount} subscriptions as expired`);
   }
 }
 
@@ -164,9 +166,9 @@ async function sendRenewalReminders() {
       );
     }
 
-    console.log(`Sent ${subscriptions.length} renewal reminders`);
+    logger.info(`Sent ${subscriptions.length} renewal reminders`);
   } catch (error) {
-    console.error('Error sending renewal reminders:', error);
+    logger.error('Error sending renewal reminders', { error: error.message });
   }
 }
 
