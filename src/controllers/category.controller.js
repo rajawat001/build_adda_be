@@ -183,8 +183,8 @@ exports.createCategory = async (req, res) => {
       parent: parent || null,
       isActive: isActive !== undefined ? isActive : true,
       order: order || 0,
-      metaTitle: metaTitle || name,
-      metaDescription: metaDescription || description
+      metaTitle: (metaTitle || name || '').substring(0, 60),
+      metaDescription: (metaDescription || description || '').substring(0, 160)
     });
 
     await category.populate('parent', 'name slug');
@@ -279,8 +279,8 @@ exports.updateCategory = async (req, res) => {
     if (parent !== undefined) category.parent = parent || null;
     if (isActive !== undefined) category.isActive = isActive;
     if (order !== undefined) category.order = order;
-    if (metaTitle !== undefined) category.metaTitle = metaTitle;
-    if (metaDescription !== undefined) category.metaDescription = metaDescription;
+    if (metaTitle !== undefined) category.metaTitle = metaTitle.substring(0, 60);
+    if (metaDescription !== undefined) category.metaDescription = metaDescription.substring(0, 160);
 
     await category.save();
     await category.populate('parent', 'name slug');

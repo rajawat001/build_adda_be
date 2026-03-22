@@ -88,73 +88,51 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
     }
   }
 
-  // Location-based filtering: find distributors by pincode/city, then filter products.
-  // We do NOT use $geoNear because distributor coordinates can be wrong in DB.
-  // Pincode and city text matching is the reliable source of truth.
+  // Location-based filtering: find distributors by city (primary), then sort by pincode proximity.
+  // City match is the main filter. Within the city, same-pincode distributors' products come first.
   let locationFiltered = false;
+  let samePincodeDistributorIds = new Set();
 
-  if (locationPincode || locationCity) {
+  if (locationCity && locationCity.trim()) {
     locationFiltered = true;
-    const nearbyIds = [];
-    const seenIds = new Set();
+    const escapedCity = escapeRegex(locationCity.trim());
 
-    // 1) Exact pincode match — highest priority
-    if (locationPincode) {
-      const pincodeDistributors = await Distributor.find({
-        pincode: locationPincode,
-        isApproved: true,
-        isActive: true,
-        isWalletLocked: { $ne: true },
-        planType: { $ne: 'none' }
-      }).select('_id').lean();
+    // Find all distributors in the same city
+    const cityDistributors = await Distributor.find({
+      city: { $regex: `^${escapedCity}$`, $options: 'i' },
+      isApproved: true,
+      isActive: true,
+      isWalletLocked: { $ne: true },
+      planType: { $ne: 'none' }
+    }).select('_id pincode').lean();
 
-      pincodeDistributors.forEach(d => {
-        seenIds.add(d._id.toString());
-        nearbyIds.push(d._id);
-      });
+    if (cityDistributors.length > 0) {
+      // Track which distributors share the user's pincode (for sorting later)
+      if (locationPincode) {
+        cityDistributors.forEach(d => {
+          if (d.pincode === locationPincode) {
+            samePincodeDistributorIds.add(d._id.toString());
+          }
+        });
+      }
+      filters.distributor = { $in: cityDistributors.map(d => d._id) };
     }
+    // If no distributors found in city, don't filter — frontend handles "expanding" message
+  } else if (locationPincode) {
+    // No city provided, fallback to pincode-based filtering
+    locationFiltered = true;
+    const pincodeDistributors = await Distributor.find({
+      pincode: locationPincode,
+      isApproved: true,
+      isActive: true,
+      isWalletLocked: { $ne: true },
+      planType: { $ne: 'none' }
+    }).select('_id').lean();
 
-    // 2) Same city match (case-insensitive)
-    if (locationCity && locationCity.trim()) {
-      const escapedCity = escapeRegex(locationCity.trim());
-      const cityDistributors = await Distributor.find({
-        city: { $regex: `^${escapedCity}$`, $options: 'i' },
-        isApproved: true,
-        isActive: true,
-        isWalletLocked: { $ne: true },
-        planType: { $ne: 'none' }
-      }).select('_id').lean();
-
-      cityDistributors.forEach(d => {
-        if (!seenIds.has(d._id.toString())) {
-          seenIds.add(d._id.toString());
-          nearbyIds.push(d._id);
-        }
-      });
+    if (pincodeDistributors.length > 0) {
+      filters.distributor = { $in: pincodeDistributors.map(d => d._id) };
+      pincodeDistributors.forEach(d => samePincodeDistributorIds.add(d._id.toString()));
     }
-
-    // 3) Same pincode region (first 3 digits) — only if no results yet
-    if (nearbyIds.length === 0 && locationPincode && /^\d{6}$/.test(locationPincode)) {
-      const pincodePrefix = locationPincode.substring(0, 3);
-      const regionDistributors = await Distributor.find({
-        pincode: { $regex: `^${pincodePrefix}` },
-        isApproved: true,
-        isActive: true,
-        isWalletLocked: { $ne: true },
-        planType: { $ne: 'none' }
-      }).select('_id').lean();
-
-      regionDistributors.forEach(d => {
-        if (!seenIds.has(d._id.toString())) {
-          nearbyIds.push(d._id);
-        }
-      });
-    }
-
-    if (nearbyIds.length > 0) {
-      filters.distributor = { $in: nearbyIds };
-    }
-    // If no distributors found at all, don't filter — frontend handles "expanding" message
   }
 
   // Exclude products from distributors that are not publicly visible
@@ -233,6 +211,17 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
   }
 
   let result = await productService.getProducts(filters, options);
+
+  // Sort: same-pincode distributors' products first, then rest of city
+  if (samePincodeDistributorIds.size > 0 && result.products) {
+    result.products.sort((a, b) => {
+      const aIsPincode = samePincodeDistributorIds.has(a.distributor?._id?.toString());
+      const bIsPincode = samePincodeDistributorIds.has(b.distributor?._id?.toString());
+      if (aIsPincode && !bIsPincode) return -1;
+      if (!aIsPincode && bIsPincode) return 1;
+      return 0;
+    });
+  }
 
   return sendPaginated(res, {
     data: { products: result.products, locationFiltered },
