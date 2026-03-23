@@ -6,8 +6,15 @@ const { sendSuccess, sendError } = require('../utils/response');
 // @route   GET /api/users/distributors
 // @access  Public
 exports.getAllDistributors = asyncHandler(async (req, res) => {
-  const { search, page = 1, limit = 20 } = req.query;
+  const { search, page = 1, limit = 20, city: queryCityParam } = req.query;
+  const locationCity = queryCityParam || req.headers['x-client-city'] || '';
   const filters = { isApproved: true, isActive: true, planType: { $ne: 'none' }, isWalletLocked: { $ne: true } };
+
+  // City-based filtering (auto from header or explicit from query)
+  if (locationCity && locationCity.trim() && !search) {
+    const escapedCity = locationCity.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    filters.city = { $regex: `^${escapedCity}$`, $options: 'i' };
+  }
 
   if (search && search.trim()) {
     const escaped = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -36,7 +43,8 @@ exports.getAllDistributors = asyncHandler(async (req, res) => {
 // @access  Public
 // Query params: ?pincode=123456&city=Jaipur OR ?lat=12.34&lng=56.78&pincode=302001&city=Jaipur
 exports.getNearbyDistributors = asyncHandler(async (req, res) => {
-  const { pincode, city, lat, lng } = req.query;
+  const { pincode, city: queryCityParam, lat, lng } = req.query;
+  const city = queryCityParam || req.headers['x-client-city'] || '';
 
   const sensitiveFields = '-password -resetPasswordToken -resetPasswordExpiry -verificationToken -bankAccountNumber -bankIFSC -failedLoginAttempts -lockUntil';
 

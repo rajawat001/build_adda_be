@@ -33,7 +33,9 @@ async function resolveCategoryParam(category) {
 // @access  Public
 exports.getAllProducts = asyncHandler(async (req, res) => {
   const { category, minPrice, maxPrice, search, sortBy, page = 1, limit = 24,
-          pincode: locationPincode, city: locationCity } = req.query;
+          pincode: locationPincode, city: queryCityParam } = req.query;
+  // Use city from query param, fallback to x-client-city header (sent by frontend on every request)
+  const locationCity = queryCityParam || req.headers['x-client-city'] || '';
 
   const filters = {
     isActive: true,
@@ -272,7 +274,8 @@ exports.getProductById = asyncHandler(async (req, res) => {
 // @access  Public
 exports.getProductsByCategory = asyncHandler(async (req, res) => {
   const { categoryId } = req.params;
-  const { city, pincode, exclude, limit } = req.query;
+  const { city: queryCityParam, pincode, exclude, limit } = req.query;
+  const city = queryCityParam || req.headers['x-client-city'] || '';
 
   // Resolve categoryId: accept ObjectId, name, or slug
   const resolvedCategoryId = await resolveCategoryParam(categoryId);
