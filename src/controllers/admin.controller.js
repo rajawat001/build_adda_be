@@ -727,7 +727,10 @@ exports.getAllProducts = asyncHandler(async (req, res) => {
 // @access  Private (Admin only)
 exports.updateProduct = asyncHandler(async (req, res) => {
   const { productId } = req.params;
-  const { name, description, price, mrp, stockQuantity, isActive } = req.body;
+  const { name, description, price, mrp, stockQuantity, isActive, category,
+    unit, unitType, brand, manufacturer, origin, material, color, weight,
+    warranty, hsnCode, dimensions, specifications, minQuantity, maxQuantity,
+    acceptedPaymentMethods, image, images } = req.body;
 
   const product = await Product.findById(productId);
 
@@ -741,6 +744,24 @@ exports.updateProduct = asyncHandler(async (req, res) => {
   if (mrp !== undefined) product.realPrice = parseFloat(mrp) || undefined;
   if (stockQuantity !== undefined) product.stock = parseInt(stockQuantity);
   if (typeof isActive === 'boolean') product.isActive = isActive;
+  if (category) product.category = category;
+  if (unit !== undefined) product.unit = unit;
+  if (unitType !== undefined) product.unitType = unitType;
+  if (brand !== undefined) product.brand = brand.trim();
+  if (manufacturer !== undefined) product.manufacturer = manufacturer.trim();
+  if (origin !== undefined) product.origin = origin.trim();
+  if (material !== undefined) product.material = material.trim();
+  if (color !== undefined) product.color = color.trim();
+  if (weight !== undefined) product.weight = weight.trim();
+  if (warranty !== undefined) product.warranty = warranty.trim();
+  if (hsnCode !== undefined) product.hsnCode = hsnCode.trim();
+  if (dimensions !== undefined) product.dimensions = dimensions;
+  if (specifications !== undefined) product.specifications = specifications;
+  if (minQuantity !== undefined) product.minQuantity = parseInt(minQuantity) || 1;
+  if (maxQuantity !== undefined) product.maxQuantity = parseInt(maxQuantity) || null;
+  if (acceptedPaymentMethods !== undefined) product.acceptedPaymentMethods = acceptedPaymentMethods;
+  if (image !== undefined) product.image = image;
+  if (images !== undefined) product.images = images;
 
   await product.save();
 
