@@ -61,6 +61,17 @@ const orderSchema = new mongoose.Schema({
     default: false
   },
 
+  // Manual / Offline order support
+  isManualOrder: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  offlineCustomer: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'OfflineCustomer'
+  },
+
   // CRITICAL FIX: Added distributor field for multi-distributor support
   distributor: {
     type: mongoose.Schema.Types.ObjectId,
@@ -136,8 +147,8 @@ const orderSchema = new mongoose.Schema({
   paymentMethod: {
     type: String,
     enum: {
-      values: ['Online', 'COD'],
-      message: 'Payment method must be either Online or COD'
+      values: ['Online', 'COD', 'Offline'],
+      message: 'Payment method must be Online, COD, or Offline'
     },
     required: [true, 'Payment method is required']
   },
@@ -256,10 +267,10 @@ const orderSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// VALIDATION: Either user or guestEmail must be present
+// VALIDATION: Either user, guestEmail, or offlineCustomer must be present
 orderSchema.pre('validate', function(next) {
-  if (!this.user && !this.guestEmail) {
-    next(new Error('Either user or guestEmail is required'));
+  if (!this.user && !this.guestEmail && !this.offlineCustomer) {
+    next(new Error('Either user, guestEmail, or offlineCustomer is required'));
   } else {
     next();
   }
@@ -275,6 +286,8 @@ orderSchema.index({ guestEmail: 1, isGuestOrder: 1 });
 orderSchema.index({ user: 1, orderStatus: 1 });
 orderSchema.index({ 'items.product': 1 });
 orderSchema.index({ orderStatus: 1, paymentStatus: 1 });
+orderSchema.index({ isManualOrder: 1, distributor: 1, createdAt: -1 });
+orderSchema.index({ offlineCustomer: 1 });
 
 // VIRTUAL: Check if order can be cancelled
 orderSchema.virtual('canBeCancelled').get(function() {

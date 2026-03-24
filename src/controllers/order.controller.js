@@ -385,7 +385,24 @@ exports.getMyOrders = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { page = 1, limit = 20, status } = req.query;
 
-  const filters = { user: userId };
+  // Include offline orders linked to this user via OfflineCustomer email matching
+  const OfflineCustomer = require('../models/OfflineCustomer');
+  const linkedOfflineCustomers = await OfflineCustomer.find({ linkedUser: userId }).select('_id').lean();
+  const offlineCustomerIds = linkedOfflineCustomers.map(c => c._id);
+
+  let filters;
+  if (offlineCustomerIds.length > 0) {
+    // Show both online orders AND manual orders linked via offline customer
+    filters = {
+      $or: [
+        { user: userId },
+        { offlineCustomer: { $in: offlineCustomerIds } }
+      ]
+    };
+  } else {
+    filters = { user: userId };
+  }
+
   if (status) {
     filters.orderStatus = status;
   }
@@ -396,7 +413,8 @@ exports.getMyOrders = asyncHandler(async (req, res) => {
     sort: { createdAt: -1 },
     populate: [
       { path: 'distributor', select: 'businessName phone' },
-      { path: 'items.product', select: 'name image price' }
+      { path: 'items.product', select: 'name image price' },
+      { path: 'offlineCustomer', select: 'name phone' }
     ]
   };
 
@@ -431,8 +449,16 @@ exports.getOrderById = asyncHandler(async (req, res) => {
     throw new NotFoundError('Order not found');
   }
 
-  // SECURITY: Verify ownership (user or admin)
-  if (order.user.toString() !== userId.toString() && req.userRole !== 'admin') {
+  // SECURITY: Verify ownership (user, linked offline customer, or admin)
+  const isOwner = order.user && order.user.toString() === userId.toString();
+  const isAdmin = req.userRole === 'admin';
+  let isLinkedOfflineCustomer = false;
+  if (!isOwner && !isAdmin && order.offlineCustomer) {
+    const OfflineCustomer = require('../models/OfflineCustomer');
+    const linked = await OfflineCustomer.findOne({ _id: order.offlineCustomer, linkedUser: userId }).select('_id').lean();
+    isLinkedOfflineCustomer = !!linked;
+  }
+  if (!isOwner && !isAdmin && !isLinkedOfflineCustomer) {
     throw new AuthorizationError('You are not authorized to access this order');
   }
 
@@ -454,7 +480,7 @@ exports.cancelOrder = asyncHandler(async (req, res) => {
   }
 
   // SECURITY: Verify ownership
-  if (order.user.toString() !== userId.toString()) {
+  if (!order.user || order.user.toString() !== userId.toString()) {
     throw new AuthorizationError('You are not authorized to cancel this order');
   }
 

@@ -5,6 +5,7 @@ const adminSubscriptionController = require('../controllers/adminSubscription.co
 const contactController = require('../controllers/contact.controller');
 const roleController = require('../controllers/role.controller');
 const liveMonitorController = require('../controllers/liveMonitor.controller');
+const offlineCustomerController = require('../controllers/offlineCustomer.controller');
 const authMiddleware = require('../middleware/auth.middleware');
 const roleMiddleware = require('../middleware/role.middleware');
 
@@ -108,5 +109,9 @@ router.get('/contacts', contactController.getAllContacts);
 router.patch('/contacts/:id', contactController.updateContactStatus);
 router.post('/contacts/:id/reply', contactController.replyToContact);
 router.delete('/contacts/:id', contactController.deleteContact);
+
+// Offline customers management
+router.get('/offline-customers', offlineCustomerController.getAllCustomers);
+router.get('/offline-customers/:customerId', offlineCustomerController.getCustomerById);
 
 module.exports = router;

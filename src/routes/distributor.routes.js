@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const distributorController = require('../controllers/distributor.controller');
+const offlineCustomerController = require('../controllers/offlineCustomer.controller');
+const manualOrderController = require('../controllers/manualOrder.controller');
 const authMiddleware = require('../middleware/auth.middleware');
 const roleMiddleware = require('../middleware/role.middleware');
 const { upload } = require('../config/cloudinary');
@@ -11,6 +13,19 @@ router.use(roleMiddleware.authorize('distributor'));
 
 // Dashboard stats
 router.get('/stats', distributorController.getDistributorStats);
+
+// Offline customer management
+router.get('/customers/search', offlineCustomerController.searchCustomers);
+router.get('/customers', offlineCustomerController.getMyCustomers);
+router.post('/customers', offlineCustomerController.createCustomer);
+router.get('/customers/:customerId', offlineCustomerController.getCustomerById);
+router.put('/customers/:customerId', offlineCustomerController.updateCustomer);
+
+// Manual order management (must be before /orders to avoid param conflicts)
+router.get('/manual-orders/stats', manualOrderController.getManualOrderStats);
+router.get('/manual-orders', manualOrderController.getManualOrders);
+router.post('/manual-orders', manualOrderController.createManualOrder);
+router.get('/manual-orders/:orderId', manualOrderController.getManualOrderById);
 
 // Analytics
 router.get('/analytics', distributorController.getDistributorAnalytics);
