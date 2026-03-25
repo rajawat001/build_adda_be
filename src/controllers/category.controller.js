@@ -261,7 +261,8 @@ exports.updateCategory = async (req, res) => {
       }
 
       // Check if trying to create circular reference
-      const descendants = await category.children;
+      await category.populate('children');
+      const descendants = category.children || [];
       const isCircular = descendants.some(child => child._id.toString() === parent);
       if (isCircular) {
         return res.status(400).json({
@@ -279,8 +280,8 @@ exports.updateCategory = async (req, res) => {
     if (parent !== undefined) category.parent = parent || null;
     if (isActive !== undefined) category.isActive = isActive;
     if (order !== undefined) category.order = order;
-    if (metaTitle !== undefined) category.metaTitle = metaTitle.substring(0, 60);
-    if (metaDescription !== undefined) category.metaDescription = metaDescription.substring(0, 160);
+    if (metaTitle !== undefined) category.metaTitle = (metaTitle || '').substring(0, 60);
+    if (metaDescription !== undefined) category.metaDescription = (metaDescription || '').substring(0, 160);
 
     await category.save();
     await category.populate('parent', 'name slug');

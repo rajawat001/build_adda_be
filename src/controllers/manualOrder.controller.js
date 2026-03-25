@@ -12,10 +12,11 @@ const { ValidationError, NotFoundError, AuthorizationError } = require('../utils
 // @access  Private (Distributor)
 exports.createManualOrder = asyncHandler(async (req, res) => {
   const distributorId = req.user._id;
-  const { offlineCustomerId, items, shippingAddress, paymentMethod, deliveryCharge, notes } = req.body;
+  const { offlineCustomerId, items, shippingAddress, paymentMethod, deliveryCharge, notes, gst } = req.body;
+  // gst = { enabled: boolean, gstType: 'intra'|'inter', gstRate: number }
 
   // 1. Validate distributor is active and eligible
-  const distributor = await Distributor.findById(distributorId).select('isApproved isActive planType isWalletLocked').lean();
+  const distributor = await Distributor.findById(distributorId).select('isApproved isActive planType isWalletLocked state').lean();
   if (!distributor || !distributor.isApproved || !distributor.isActive) {
     throw new AuthorizationError('Your account is not active. Cannot create orders.');
   }
@@ -88,7 +89,45 @@ exports.createManualOrder = asyncHandler(async (req, res) => {
 
   const charge = Math.max(0, parseFloat(deliveryCharge) || 0);
   if (charge > 100000) throw new ValidationError('Delivery charge too high');
-  const totalAmount = Math.round((subtotal + charge) * 100) / 100;
+
+  // GST Calculation
+  let gstDetails = { enabled: false, gstType: '', taxableAmount: 0, cgstRate: 0, cgstAmount: 0, sgstRate: 0, sgstAmount: 0, igstRate: 0, igstAmount: 0, totalGst: 0 };
+  let taxAmount = 0;
+  let taxPercentage = 0;
+
+  if (gst && gst.enabled) {
+    const gstRate = Math.min(parseFloat(gst.gstRate) || 18, 28); // Max 28% GST
+    const gstType = gst.gstType || 'intra';
+    const taxableAmount = Math.round(subtotal * 100) / 100;
+
+    if (gstType === 'inter') {
+      // Inter-state: IGST only
+      const igstAmount = Math.round(taxableAmount * gstRate / 100 * 100) / 100;
+      gstDetails = {
+        enabled: true, gstType: 'inter', taxableAmount,
+        cgstRate: 0, cgstAmount: 0,
+        sgstRate: 0, sgstAmount: 0,
+        igstRate: gstRate, igstAmount,
+        totalGst: igstAmount
+      };
+    } else {
+      // Intra-state: CGST + SGST (split equally)
+      const halfRate = gstRate / 2;
+      const cgstAmount = Math.round(taxableAmount * halfRate / 100 * 100) / 100;
+      const sgstAmount = Math.round(taxableAmount * halfRate / 100 * 100) / 100;
+      gstDetails = {
+        enabled: true, gstType: 'intra', taxableAmount,
+        cgstRate: halfRate, cgstAmount,
+        sgstRate: halfRate, sgstAmount,
+        igstRate: 0, igstAmount: 0,
+        totalGst: cgstAmount + sgstAmount
+      };
+    }
+    taxAmount = gstDetails.totalGst;
+    taxPercentage = gstRate;
+  }
+
+  const totalAmount = Math.round((subtotal + taxAmount + charge) * 100) / 100;
 
   // 6. Build shipping address
   const address = shippingAddress && shippingAddress.fullName ? shippingAddress : {
@@ -139,6 +178,9 @@ exports.createManualOrder = asyncHandler(async (req, res) => {
       distributor: distributorId,
       items: orderItems,
       subtotal,
+      tax: taxAmount,
+      taxPercentage,
+      gstDetails,
       deliveryCharge: charge,
       totalAmount,
       shippingAddress: address,

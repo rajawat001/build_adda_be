@@ -126,6 +126,19 @@ const orderSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'Tax percentage cannot be negative']
   },
+  // GST breakdown for manual/offline orders
+  gstDetails: {
+    enabled: { type: Boolean, default: false },
+    gstType: { type: String, enum: ['intra', 'inter', ''], default: '' }, // intra=CGST+SGST, inter=IGST
+    taxableAmount: { type: Number, default: 0 },
+    cgstRate: { type: Number, default: 0 },
+    cgstAmount: { type: Number, default: 0 },
+    sgstRate: { type: Number, default: 0 },
+    sgstAmount: { type: Number, default: 0 },
+    igstRate: { type: Number, default: 0 },
+    igstAmount: { type: Number, default: 0 },
+    totalGst: { type: Number, default: 0 },
+  },
   deliveryCharge: {
     type: Number,
     default: 0,
@@ -325,10 +338,11 @@ orderSchema.pre('save', function(next) {
     return next();
   }
 
-  // No tax applied in calculation (for new orders)
-  const calculatedTotal = this.subtotal + this.deliveryCharge - this.discount;
+  // Include tax/GST in total calculation
+  const taxAmount = this.tax || (this.gstDetails?.totalGst) || 0;
+  const calculatedTotal = this.subtotal + taxAmount + this.deliveryCharge - this.discount;
 
-  // Allow small rounding differences (5 rupees to account for old orders with tax)
+  // Allow small rounding differences (5 rupees to account for rounding)
   if (Math.abs(calculatedTotal - this.totalAmount) > 5) {
     return next(new Error(
       `Total amount mismatch. Expected ${calculatedTotal}, got ${this.totalAmount}`
