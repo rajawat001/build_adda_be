@@ -435,6 +435,7 @@ exports.getCategories = asyncHandler(async (req, res) => {
         image: cat.image,
         description: cat.description,
         order: cat.order,
+        parent: cat.parent || null,
         count
       };
     })
