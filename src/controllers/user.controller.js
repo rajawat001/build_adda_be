@@ -1,5 +1,6 @@
 const asyncHandler = require('../utils/asyncHandler');
 const Distributor = require('../models/Distributor');
+const Product = require('../models/Product');
 const { sendSuccess, sendError } = require('../utils/response');
 
 // @desc    Get all verified distributors (public)
@@ -31,7 +32,18 @@ exports.getAllDistributors = asyncHandler(async (req, res) => {
     .select('-password -resetPasswordToken -resetPasswordExpiry -verificationToken -bankAccountNumber -bankIFSC -failedLoginAttempts -lockUntil')
     .sort('-rating')
     .skip(skip)
-    .limit(parseInt(limit));
+    .limit(parseInt(limit))
+    .lean();
+
+  // Attach product count for each distributor
+  const distributorIds = distributors.map(d => d._id);
+  const productCounts = await Product.aggregate([
+    { $match: { distributor: { $in: distributorIds }, isActive: true } },
+    { $group: { _id: '$distributor', count: { $sum: 1 } } }
+  ]);
+  const countMap = {};
+  productCounts.forEach(pc => { countMap[pc._id.toString()] = pc.count; });
+  distributors.forEach(d => { d.productCount = countMap[d._id.toString()] || 0; });
 
   return sendSuccess(res, {
     data: { distributors, count: distributors.length }
