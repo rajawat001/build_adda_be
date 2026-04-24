@@ -7,14 +7,26 @@ const { sendSuccess, sendError } = require('../utils/response');
 // @route   GET /api/users/distributors
 // @access  Public
 exports.getAllDistributors = asyncHandler(async (req, res) => {
-  const { search, page = 1, limit = 20, city: queryCityParam } = req.query;
+  const { search, page = 1, limit = 20, city: queryCityParam, pincode } = req.query;
   const locationCity = queryCityParam || req.headers['x-client-city'] || '';
   const filters = { isApproved: true, isActive: true, planType: { $ne: 'none' }, isWalletLocked: { $ne: true } };
 
-  // City-based filtering (auto from header or explicit from query)
-  if (locationCity && locationCity.trim() && !search) {
-    const escapedCity = locationCity.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    filters.city = { $regex: `^${escapedCity}$`, $options: 'i' };
+  // City + pincode region filtering (show distributors from same city OR nearby pincode area)
+  if ((locationCity || pincode) && !search) {
+    const orConditions = [];
+    if (locationCity && locationCity.trim()) {
+      const escapedCity = locationCity.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      orConditions.push({ city: { $regex: `^${escapedCity}$`, $options: 'i' } });
+    }
+    if (pincode && /^\d{3,6}$/.test(pincode)) {
+      orConditions.push({ pincode: pincode });
+      // Also match nearby pincode region (first 3 digits)
+      const pincodePrefix = pincode.substring(0, 3);
+      orConditions.push({ pincode: { $regex: `^${pincodePrefix}` } });
+    }
+    if (orConditions.length > 0) {
+      filters.$or = orConditions;
+    }
   }
 
   if (search && search.trim()) {
@@ -116,8 +128,8 @@ exports.getNearbyDistributors = asyncHandler(async (req, res) => {
     });
   }
 
-  // 3) Same pincode region (first 3 digits) — only if still no results
-  if (allDistributors.length === 0 && pincode && /^\d{6}$/.test(pincode)) {
+  // 3) Same pincode region (first 3 digits) — always include nearby pincode area distributors
+  if (pincode && /^\d{6}$/.test(pincode)) {
     const pincodePrefix = pincode.substring(0, 3);
     const regionResults = await Distributor.find({
       pincode: { $regex: `^${pincodePrefix}` },
